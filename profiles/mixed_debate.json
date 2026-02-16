@@ -1,0 +1,40 @@
+{
+  "name": "Mixed Debate",
+  "description": "Two opposing worldviews merged into one map. Beliefs 0-4 belong to a collectivist environmentalist; beliefs 5-9 belong to an individualist capitalist. Within each group beliefs are compatible; across groups they clash. This produces two visible clusters in the network graph.",
+  "beliefs": [
+    "The common good should take precedence over individual profit",
+    "Nature has intrinsic value beyond its utility to humans",
+    "Wealth inequality is the root cause of most social problems",
+    "Corporations must be strictly regulated to protect people",
+    "Cooperation, not competition, drives the best outcomes",
+    "Individual achievement is the engine of human progress",
+    "Free markets naturally produce the most prosperous societies",
+    "Wealth creation benefits everyone through economic growth",
+    "Excessive regulation stifles innovation and personal freedom",
+    "Competition is the natural and healthy state of human affairs"
+  ],
+  "scores": [
+    [ 1.00,  0.65,  0.70,  0.75,  0.80, -0.75, -0.60, -0.55, -0.65, -0.70],
+    [ 0.65,  1.00,  0.40,  0.60,  0.55, -0.30, -0.35, -0.50, -0.45, -0.25],
+    [ 0.70,  0.40,  1.00,  0.65,  0.50, -0.55, -0.70, -0.85, -0.50, -0.40],
+    [ 0.75,  0.60,  0.65,  1.00,  0.55, -0.50, -0.60, -0.45, -0.90, -0.45],
+    [ 0.80,  0.55,  0.50,  0.55,  1.00, -0.70, -0.55, -0.40, -0.50, -0.85],
+    [-0.75, -0.30, -0.55, -0.50, -0.70,  1.00,  0.70,  0.65,  0.60,  0.75],
+    [-0.60, -0.35, -0.70, -0.60, -0.55,  0.70,  1.00,  0.80,  0.75,  0.60],
+    [-0.55, -0.50, -0.85, -0.45, -0.40,  0.65,  0.80,  1.00,  0.55,  0.50],
+    [-0.65, -0.45, -0.50, -0.90, -0.50,  0.60,  0.75,  0.55,  1.00,  0.65],
+    [-0.70, -0.25, -0.40, -0.45, -0.85,  0.75,  0.60,  0.50,  0.65,  1.00]
+  ],
+  "justifications": {
+    "0-5": "Collectivist prioritization of the common good directly opposes individualist emphasis on personal achievement as the driver of progress.",
+    "0-6": "The belief that common good outweighs individual profit is fundamentally at odds with faith in unregulated free markets.",
+    "0-4": "Both beliefs affirm that cooperative, group-oriented approaches produce the best outcomes for society.",
+    "2-7": "The claim that wealth inequality causes social problems directly contradicts the belief that wealth creation benefits everyone.",
+    "3-8": "Strict corporate regulation clashes with the view that regulation stifles innovation and freedom.",
+    "4-9": "The belief that cooperation drives the best outcomes is contradicted by the claim that competition is the natural and healthy human state.",
+    "1-6": "Intrinsic value of nature conflicts with a market-driven worldview that values nature primarily as a resource.",
+    "5-6": "Individual achievement and free markets are mutually reinforcing pillars of the same individualist worldview.",
+    "0-1": "Prioritizing the common good aligns with valuing nature beyond its utility — both subordinate profit to broader values.",
+    "7-8": "Wealth creation through growth and opposition to excessive regulation reflect the same pro-market economic philosophy."
+  }
+}

@@ -8,5 +8,8 @@ dist/
 build/
 data/
 .env
+.idea/
+.claude/
+offline_output/
 *.html
 !OVERVIEW.md

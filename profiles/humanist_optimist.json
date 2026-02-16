@@ -1,0 +1,37 @@
+{
+  "name": "Humanist Optimist",
+  "description": "A coherent progressive worldview: science-positive, egalitarian, and forward-looking. Most beliefs reinforce each other, producing a largely compatible map.",
+  "beliefs": [
+    "Science is the most reliable way to understand the world",
+    "All human beings deserve equal rights regardless of origin",
+    "Education is the most powerful tool for social progress",
+    "Democracy, despite its flaws, is the best system of governance",
+    "Empathy is the foundation of moral behavior",
+    "Climate change is humanity's most urgent challenge",
+    "Technology, guided by ethics, can dramatically improve lives",
+    "Access to healthcare is a fundamental human right",
+    "Diversity of perspectives strengthens communities",
+    "Future generations deserve a better world than we inherited"
+  ],
+  "scores": [
+    [ 1.00,  0.50,  0.75,  0.40,  0.20,  0.60,  0.80,  0.35,  0.45,  0.55],
+    [ 0.50,  1.00,  0.60,  0.70,  0.65,  0.30,  0.25,  0.80,  0.85,  0.60],
+    [ 0.75,  0.60,  1.00,  0.55,  0.40,  0.45,  0.65,  0.50,  0.60,  0.70],
+    [ 0.40,  0.70,  0.55,  1.00,  0.35,  0.30,  0.30,  0.55,  0.70,  0.45],
+    [ 0.20,  0.65,  0.40,  0.35,  1.00,  0.25,  0.15,  0.50,  0.60,  0.55],
+    [ 0.60,  0.30,  0.45,  0.30,  0.25,  1.00,  0.55,  0.35,  0.20,  0.85],
+    [ 0.80,  0.25,  0.65,  0.30,  0.15,  0.55,  1.00,  0.40,  0.30,  0.65],
+    [ 0.35,  0.80,  0.50,  0.55,  0.50,  0.35,  0.40,  1.00,  0.55,  0.50],
+    [ 0.45,  0.85,  0.60,  0.70,  0.60,  0.20,  0.30,  0.55,  1.00,  0.50],
+    [ 0.55,  0.60,  0.70,  0.45,  0.55,  0.85,  0.65,  0.50,  0.50,  1.00]
+  ],
+  "justifications": {
+    "0-6": "Science and ethically-guided technology share a rationalist, evidence-based worldview that trusts human ingenuity to improve the world.",
+    "1-8": "Universal equal rights and diversity of perspectives are deeply compatible — both value every individual's contribution regardless of background.",
+    "0-2": "Science as the best way to understand the world and education as the tool for progress are natural complements in a rationalist worldview.",
+    "5-9": "Treating climate change as the most urgent challenge aligns with the obligation to leave future generations a better world.",
+    "1-7": "Equal rights for all and universal healthcare access both flow from the same egalitarian moral framework.",
+    "2-6": "Education as the key to progress and technology as a force for good both express optimism about human capacity for improvement.",
+    "3-8": "Democracy and diversity of perspectives reinforce each other — democratic systems depend on and benefit from pluralistic input."
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "name": "Libertarian Traditionalist",
+  "description": "Free-market individualism blended with traditional values. Mostly self-consistent, but reveals real internal tensions between personal liberty and social conservatism.",
+  "beliefs": [
+    "Free markets allocate resources more efficiently than central planning",
+    "Individual liberty is the highest political value",
+    "Traditional family structures are the backbone of a stable society",
+    "Government regulation usually does more harm than good",
+    "Personal responsibility matters more than systemic factors",
+    "A strong national defense is essential for freedom",
+    "Religious values provide the best moral foundation",
+    "Property rights are the cornerstone of all other rights",
+    "Immigration should be tightly controlled to preserve culture",
+    "People should be free to live however they choose"
+  ],
+  "scores": [
+    [ 1.00,  0.75,  0.20,  0.85,  0.60,  0.30,  0.10,  0.80,  0.15,  0.55],
+    [ 0.75,  1.00,  0.00,  0.70,  0.50,  0.10,  -0.15,  0.65,  -0.40,  0.90],
+    [ 0.20,  0.00,  1.00,  -0.10,  0.35,  0.45,  0.80,  0.15,  0.70,  -0.50],
+    [ 0.85,  0.70,  -0.10,  1.00,  0.55,  -0.20,  0.05,  0.75,  0.00,  0.50],
+    [ 0.60,  0.50,  0.35,  0.55,  1.00,  0.25,  0.30,  0.45,  0.20,  0.30],
+    [ 0.30,  0.10, 0.45,  -0.20,  0.25,  1.00,  0.40,  0.20,  0.55,  -0.15],
+    [ 0.10,  -0.15,  0.80,  0.05,  0.30,  0.40,  1.00,  0.10,  0.55,  -0.45],
+    [ 0.80,  0.65,  0.15,  0.75,  0.45,  0.20,  0.10,  1.00,  0.25,  0.50],
+    [ 0.15,  -0.40,  0.70,  0.00,  0.20,  0.55,  0.55,  0.25,  1.00,  -0.65],
+    [ 0.55,  0.90,  -0.50,  0.50,  0.30,  -0.15,  -0.45,  0.50,  -0.65,  1.00]
+  ],
+  "justifications": {
+    "1-9": "Individual liberty and the freedom to live however one chooses are nearly synonymous — both center personal autonomy as the highest value.",
+    "1-8": "The belief in individual liberty as the highest value tensions with immigration control, which restricts others' liberty to move freely.",
+    "2-9": "Traditional family structures as a social imperative conflicts with the principle that people should live however they choose.",
+    "6-9": "Religious moral foundations imply behavioral norms that constrain the freedom to live however one chooses.",
+    "8-9": "Tight immigration control to preserve culture directly contradicts the principle that people should be free to live as they choose.",
+    "0-3": "Free market efficiency and opposition to government regulation are mutually reinforcing — both advocate minimal state interference in economics.",
+    "2-6": "Traditional family values and religious moral foundations share the same conservative cultural worldview.",
+    "0-1": "Free market advocacy and individual liberty are both grounded in the primacy of voluntary exchange and personal autonomy."
+  }
+}

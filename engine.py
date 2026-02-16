@@ -2,15 +2,25 @@
 
 from __future__ import annotations
 
+import logging
+import re as _re
+import time
+
 import numpy as np
 
 from cache import RateLimiter, ResultCache
 from models import Belief, TensionCategory, TensionResult
 
+logger = logging.getLogger(__name__)
+
 MAX_BELIEFS = 50
 EMBEDDING_MODEL = "text-embedding-3-small"
+LOCAL_EMBEDDING_MODEL = "local-tfidf"
 EMBEDDING_BATCH_SIZE = 128
-TENSION_MODEL = "claude-sonnet-4-5-20250929"
+TENSION_MODEL = "claude-sonnet-4-5-latest"
+
+MAX_RETRIES = 3
+RETRY_BACKOFF_BASE = 2.0
 
 TENSION_SYSTEM_PROMPT = """\
 You are a formal logic and philosophy expert. Compare two beliefs. \
@@ -37,6 +47,110 @@ Score guide:
   -0.5..-0.1 tensioned
   -1.0..-0.6 contradictory\
 """
+
+
+def _strip_markdown_fences(text: str) -> str:
+    """Remove markdown code fences from LLM output."""
+    text = text.strip()
+    pattern = r"^```(?:json)?\s*\n?(.*?)\n?\s*```$"
+    m = _re.match(pattern, text, _re.DOTALL)
+    if m:
+        return m.group(1).strip()
+    return text
+
+
+_SCORE_CATEGORY_RANGES: dict[str, tuple[float, float]] = {
+    "mutually_entailed": (0.8, 1.0),
+    "compatible_harmonious": (0.1, 1.0),
+    "neutral": (-0.3, 0.3),
+    "tensioned": (-1.0, -0.1),
+    "contradictory": (-1.0, -0.4),
+}
+
+
+def _validate_score_category(score: float, category: str) -> None:
+    """Log a warning if score and category are inconsistent."""
+    expected = _SCORE_CATEGORY_RANGES.get(category)
+    if expected and not (expected[0] <= score <= expected[1]):
+        logger.warning(
+            "Score %.2f is inconsistent with category '%s' (expected %.1f to %.1f)",
+            score, category, expected[0], expected[1],
+        )
+
+
+def _local_tfidf_embeddings(texts: list[str], dims: int = 256) -> list[list[float]]:
+    """Generate TF-IDF embeddings locally using scikit-learn.
+
+    Uses TfidfVectorizer with SVD dimensionality reduction to produce
+    dense vectors that capture term importance and handle stop words.
+    Falls back to BOW if scikit-learn is not installed.
+    """
+    try:
+        from sklearn.decomposition import TruncatedSVD
+        from sklearn.feature_extraction.text import TfidfVectorizer
+    except ImportError:
+        logger.warning(
+            "scikit-learn not installed; falling back to local-bow embeddings. "
+            "Install with: pip install scikit-learn"
+        )
+        return _local_bow_embeddings(texts, dims=128)
+
+    n_texts = len(texts)
+    if n_texts == 0:
+        return []
+
+    vectorizer = TfidfVectorizer(
+        stop_words="english",
+        max_features=2000,
+        sublinear_tf=True,
+    )
+    tfidf_matrix = vectorizer.fit_transform(texts)
+
+    # Reduce dimensions with SVD; cap at available features
+    n_components = min(dims, tfidf_matrix.shape[1], n_texts)
+    if n_components < 2:
+        # Too few documents/features for SVD; fall back to sparse-to-dense
+        dense = tfidf_matrix.toarray()
+        vectors = []
+        for row in dense:
+            norm = float(np.linalg.norm(row)) or 1.0
+            vectors.append((row / norm).tolist())
+        return vectors
+
+    svd = TruncatedSVD(n_components=n_components, random_state=42)
+    reduced = svd.fit_transform(tfidf_matrix)
+
+    # L2-normalize each row
+    norms = np.linalg.norm(reduced, axis=1, keepdims=True)
+    norms[norms == 0] = 1.0
+    normalized = reduced / norms
+    return normalized.tolist()
+
+
+def _local_bow_embeddings(texts: list[str], dims: int = 128) -> list[list[float]]:
+    """Generate bag-of-words embeddings locally (no API or extra deps needed).
+
+    Uses feature hashing to map tokens to a fixed-size vector space.
+    The result is deterministic and produces meaningful cosine similarities
+    for texts with shared words.
+    """
+    import hashlib
+
+    def tokenize(t: str) -> list[str]:
+        return _re.findall(r"[a-z']+", t.lower())
+
+    token_lists = [tokenize(t) for t in texts]
+    vectors: list[list[float]] = []
+    for tokens in token_lists:
+        vec = [0.0] * dims
+        for tok in tokens:
+            h = int(hashlib.md5(tok.encode()).hexdigest(), 16)
+            bucket = h % dims
+            sign = 1.0 if (h // dims) % 2 == 0 else -1.0
+            vec[bucket] += sign
+        norm = sum(x * x for x in vec) ** 0.5 or 1.0
+        vectors.append([x / norm for x in vec])
+    return vectors
 
 
 class BeliefMap:
@@ -67,10 +181,24 @@ class BeliefMap:
     # Belief CRUD
     # ------------------------------------------------------------------
 
-    def add_belief(self, text: str, expanded: str = "", embedding: list[float] | None = None) -> Belief:
-        """Add a belief and return it.  Raises ValueError when the map is full."""
+    def add_belief(
+        self,
+        text: str,
+        expanded: str = "",
+        embedding: list[float] | None = None,
+        tags: list[str] | None = None,
+    ) -> Belief:
+        """Add a belief and return it.
+
+        Raises ValueError when the map is full or when a belief with
+        identical text already exists.
+        """
         if len(self.beliefs) >= MAX_BELIEFS:
             raise ValueError(f"Cannot exceed {MAX_BELIEFS} beliefs")
+
+        existing_texts = {b.text for b in self.beliefs.values()}
+        if text in existing_texts:
+            raise ValueError(f"Duplicate belief: {text!r}")
 
         next_id = self._next_id()
         belief = Belief(
@@ -78,6 +206,7 @@ class BeliefMap:
             text=text,
             expanded=expanded,
             embedding=embedding or [],
+            tags=tags or [],
         )
         self.beliefs[next_id] = belief
         return belief
@@ -162,7 +291,22 @@ class BeliefMap:
         if not api_needed:
             return cache_hits
 
-        # --- phase 2: call OpenAI for the remainder ------------------
+        # --- phase 2: generate embeddings for the remainder ----------
+        if model.startswith("local"):
+            texts = [b.expanded or b.text for b in api_needed]
+            if model == "local-tfidf":
+                vectors = _local_tfidf_embeddings(texts)
+            else:
+                vectors = _local_bow_embeddings(texts)
+            for belief, vec in zip(api_needed, vectors):
+                belief.embedding = vec
+                if self.cache:
+                    self.cache.put_embedding(
+                        belief.expanded or belief.text, model, vec
+                    )
+            return cache_hits + len(api_needed)
+
+        # OpenAI API path
         from openai import OpenAI
 
         client = OpenAI()
@@ -261,10 +405,13 @@ class BeliefMap:
 
         Resolution order:
         1. SQLite cache hit → return immediately (no API call).
-        2. Cache miss → wait for rate-limiter, call Claude, write to cache.
+        2. Cache miss → wait for rate-limiter, call Claude with retries,
+           write to cache.
 
         Returns a :class:`TensionResult` with ``score``, ``category``,
         and ``justification``.
+
+        Raises ``RuntimeError`` if all retries are exhausted.
         """
         import json as _json
 
@@ -279,33 +426,68 @@ class BeliefMap:
             if cached:
                 return cached
 
-        # --- rate-limit then call ------------------------------------
-        if self.rate_limiter:
-            self.rate_limiter.wait()
-
+        # --- rate-limit then call with retries -----------------------
         if not hasattr(self, "_anthropic_client"):
             self._anthropic_client = Anthropic()
 
-        response = self._anthropic_client.messages.create(
-            model=model,
-            max_tokens=256,
-            system=TENSION_SYSTEM_PROMPT,
-            messages=[
-                {
-                    "role": "user",
-                    "content": f"Belief A: {desc_a}\nBelief B: {desc_b}",
-                }
-            ],
+        last_error: Exception | None = None
+        for attempt in range(MAX_RETRIES):
+            try:
+                if self.rate_limiter:
+                    self.rate_limiter.wait()
+
+                response = self._anthropic_client.messages.create(
+                    model=model,
+                    max_tokens=256,
+                    system=TENSION_SYSTEM_PROMPT,
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": f"Belief A: {desc_a}\nBelief B: {desc_b}",
+                        }
+                    ],
+                )
+
+                # Check for truncated response
+                stop_reason = getattr(response, "stop_reason", None)
+                if stop_reason == "max_tokens":
+                    raise ValueError(
+                        "Response truncated (max_tokens reached); "
+                        "JSON is likely incomplete"
+                    )
+
+                if not response.content:
+                    raise ValueError("Empty response from Claude")
+
+                raw = _strip_markdown_fences(response.content[0].text)
+                result = TensionResult(**_json.loads(raw))
+
+                # Warn on score/category mismatch (but don't reject)
+                _validate_score_category(result.score, result.category.value)
+
+                # --- write-through to cache --------------------------
+                if self.cache:
+                    self.cache.put_tension(desc_a, desc_b, model, result)
+
+                return result
+
+            except Exception as exc:
+                last_error = exc
+                if attempt < MAX_RETRIES - 1:
+                    delay = RETRY_BACKOFF_BASE ** attempt
+                    logger.warning(
+                        "Attempt %d/%d failed for pair (%s, %s): %s. "
+                        "Retrying in %.1fs...",
+                        attempt + 1, MAX_RETRIES,
+                        belief_a.text[:30], belief_b.text[:30],
+                        exc, delay,
+                    )
+                    time.sleep(delay)
+
+        raise RuntimeError(
+            f"All {MAX_RETRIES} attempts failed for pair "
+            f"({belief_a.text!r}, {belief_b.text!r}): {last_error}"
         )
-
-        raw = response.content[0].text.strip()
-        result = TensionResult(**_json.loads(raw))
-
-        # --- write-through to cache ----------------------------------
-        if self.cache:
-            self.cache.put_tension(desc_a, desc_b, model, result)
-
-        return result
 
     def analyze_pair(
         self,
@@ -326,6 +508,8 @@ class BeliefMap:
         threshold: float = 0.7,
         model: str = TENSION_MODEL,
         force: bool = False,
+        on_progress: callable | None = None,
+        persist_fn: callable | None = None,
     ) -> list[tuple[int, int, TensionResult]]:
         """Run tension analysis on interesting pairs.
 
@@ -333,15 +517,40 @@ class BeliefMap:
         unless *force* is ``True``.  Even when a pair is *not* skipped,
         the cache may still satisfy it without an API call.
 
+        Parameters
+        ----------
+        on_progress : optional callback invoked after each pair is processed.
+        persist_fn : optional callback to save state incrementally (called
+            every 10 pairs).
+
         Returns a list of ``(id_a, id_b, TensionResult)`` tuples.
         """
         candidates = self.interesting_pairs(top_n=top_n, threshold=threshold)
+        to_analyze = [
+            (id_a, id_b)
+            for id_a, id_b, _sim in candidates
+            if force or np.isnan(self.scores[id_a, id_b])
+        ]
+
         results: list[tuple[int, int, TensionResult]] = []
-        for id_a, id_b, _sim in candidates:
-            if not force and not np.isnan(self.scores[id_a, id_b]):
-                continue
-            result = self.analyze_pair(id_a, id_b, model=model)
-            results.append((id_a, id_b, result))
+        for i, (id_a, id_b) in enumerate(to_analyze):
+            try:
+                result = self.analyze_pair(id_a, id_b, model=model)
+                results.append((id_a, id_b, result))
+            except RuntimeError as exc:
+                logger.warning("Skipping pair (%d, %d): %s", id_a, id_b, exc)
+
+            if on_progress:
+                on_progress()
+
+            # Incremental persistence every 10 pairs
+            if persist_fn and (i + 1) % 10 == 0:
+                persist_fn()
+
+        # Final persist for any remaining pairs
+        if persist_fn and results:
+            persist_fn()
+
         return results
 
     # ------------------------------------------------------------------

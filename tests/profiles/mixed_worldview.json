@@ -1,0 +1,12 @@
+[
+  {"text": "Free will exists", "tags": ["agency"]},
+  {"text": "Determinism is true", "tags": ["agency"]},
+  {"text": "Markets should be regulated", "tags": ["policy"]},
+  {"text": "Individual liberty is paramount", "tags": ["policy", "ethics"]},
+  {"text": "Climate change requires collective action", "tags": ["policy"]},
+  {"text": "Technology will solve most problems", "tags": ["progress"]},
+  {"text": "Morality is culturally relative", "tags": ["ethics"]},
+  {"text": "Human nature is fundamentally good", "tags": ["ethics"]},
+  {"text": "Wealth inequality is natural", "tags": ["policy"]},
+  {"text": "Education is a fundamental right", "tags": ["policy", "ethics"]}
+]
