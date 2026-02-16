@@ -4,11 +4,38 @@ from __future__ import annotations
 
 import numpy as np
 
-from models import Belief
+from models import Belief, TensionCategory, TensionResult
 
 MAX_BELIEFS = 100
 EMBEDDING_MODEL = "text-embedding-3-small"
 EMBEDDING_BATCH_SIZE = 128
+TENSION_MODEL = "claude-sonnet-4-5-20250929"
+
+TENSION_SYSTEM_PROMPT = """\
+You are a formal logic and philosophy expert. Compare two beliefs. \
+Determine if they are:
+
+1. Mutually Entailed — One necessitates the other.
+2. Compatible/Harmonious — They support the same worldview.
+3. Neutral — Unrelated.
+4. Tensioned — Difficult to hold both without cognitive dissonance.
+5. Contradictory — Logically impossible to hold both.
+
+Output ONLY valid JSON (no markdown fences) with exactly these keys:
+{
+  "score": <float from -1.0 (Contradictory) to +1.0 (Entailed)>,
+  "category": <one of "mutually_entailed", "compatible_harmonious", \
+"neutral", "tensioned", "contradictory">,
+  "justification": "<one-sentence justification for the score>"
+}
+
+Score guide:
+  +1.0       mutually_entailed
+  +0.5..+0.9 compatible_harmonious
+   0.0       neutral
+  -0.5..-0.1 tensioned
+  -1.0..-0.6 contradictory\
+"""
 
 
 class BeliefMap:
@@ -189,6 +216,85 @@ class BeliefMap:
 
         pairs.sort(key=lambda t: t[2], reverse=True)
         return pairs[:top_n]
+
+    # ------------------------------------------------------------------
+    # LLM logical-tension analysis
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def analyze_logical_tension(
+        belief_a: Belief,
+        belief_b: Belief,
+        model: str = TENSION_MODEL,
+    ) -> TensionResult:
+        """Ask Claude to judge the logical relationship between two beliefs.
+
+        Returns a :class:`TensionResult` with a ``score`` (-1..+1),
+        ``category``, and one-sentence ``justification``.
+
+        Requires the ``ANTHROPIC_API_KEY`` environment variable.
+        """
+        import json as _json
+
+        from anthropic import Anthropic
+
+        client = Anthropic()
+
+        # Prefer the richer expanded text when available.
+        desc_a = belief_a.expanded or belief_a.text
+        desc_b = belief_b.expanded or belief_b.text
+
+        user_msg = (
+            f"Belief A: {desc_a}\n"
+            f"Belief B: {desc_b}"
+        )
+
+        response = client.messages.create(
+            model=model,
+            max_tokens=256,
+            system=TENSION_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": user_msg}],
+        )
+
+        raw = response.content[0].text.strip()
+
+        # Parse and validate through the Pydantic model.
+        data = _json.loads(raw)
+        return TensionResult(**data)
+
+    def analyze_pair(
+        self,
+        id_a: int,
+        id_b: int,
+        model: str = TENSION_MODEL,
+    ) -> TensionResult:
+        """Analyse a pair by ID and write the score into the matrix."""
+        belief_a = self.get_belief(id_a)
+        belief_b = self.get_belief(id_b)
+        result = self.analyze_logical_tension(belief_a, belief_b, model=model)
+        self.set_score(id_a, id_b, result.score)
+        return result
+
+    def analyze_interesting(
+        self,
+        top_n: int = 20,
+        threshold: float = 0.7,
+        model: str = TENSION_MODEL,
+    ) -> list[tuple[int, int, TensionResult]]:
+        """Run tension analysis on all interesting pairs in one batch.
+
+        Calls :meth:`interesting_pairs` to select candidates, then
+        analyses each via Claude.  Scores are written into
+        ``self.scores`` as a side-effect.
+
+        Returns a list of ``(id_a, id_b, TensionResult)`` tuples.
+        """
+        candidates = self.interesting_pairs(top_n=top_n, threshold=threshold)
+        results: list[tuple[int, int, TensionResult]] = []
+        for id_a, id_b, _sim in candidates:
+            result = self.analyze_pair(id_a, id_b, model=model)
+            results.append((id_a, id_b, result))
+        return results
 
     # ------------------------------------------------------------------
     # Internals

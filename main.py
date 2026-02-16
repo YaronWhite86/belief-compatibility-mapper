@@ -160,5 +160,48 @@ def interesting(
         typer.echo(f"      B: {bb.text}")
 
 
+@app.command()
+def analyze(
+    id_a: int = typer.Argument(..., help="First belief ID"),
+    id_b: int = typer.Argument(..., help="Second belief ID"),
+    model: str = typer.Option("claude-sonnet-4-5-20250929", "--model", "-m"),
+) -> None:
+    """Analyze logical tension between two beliefs via Claude."""
+    bmap = _get_map()
+    result = bmap.analyze_pair(id_a, id_b, model=model)
+    _persist()
+    ba = bmap.get_belief(id_a)
+    bb = bmap.get_belief(id_b)
+    typer.echo(f"  A: {ba.text}")
+    typer.echo(f"  B: {bb.text}")
+    typer.echo(f"  Category:      {result.category.value}")
+    typer.echo(f"  Score:         {result.score:+.2f}")
+    typer.echo(f"  Justification: {result.justification}")
+
+
+@app.command()
+def analyze_all(
+    top_n: int = typer.Option(20, "--top", "-n", help="Max pairs to analyze"),
+    threshold: float = typer.Option(0.7, "--threshold", "-t", help="Min cosine similarity"),
+    model: str = typer.Option("claude-sonnet-4-5-20250929", "--model", "-m"),
+) -> None:
+    """Run tension analysis on all interesting pairs via Claude."""
+    bmap = _get_map()
+    typer.echo(f"Analyzing interesting pairs (threshold={threshold}, top={top_n})...\n")
+    results = bmap.analyze_interesting(top_n=top_n, threshold=threshold, model=model)
+    _persist()
+    if not results:
+        typer.echo("No interesting pairs to analyze.")
+        return
+    for id_a, id_b, result in results:
+        ba = bmap.get_belief(id_a)
+        bb = bmap.get_belief(id_b)
+        typer.echo(f"  [{id_a:>2} <-> {id_b:>2}]  {result.score:+.2f}  {result.category.value}")
+        typer.echo(f"      A: {ba.text}")
+        typer.echo(f"      B: {bb.text}")
+        typer.echo(f"      {result.justification}\n")
+    typer.echo(f"Analyzed {len(results)} pair(s). Scores saved to matrix.")
+
+
 if __name__ == "__main__":
     app()
