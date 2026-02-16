@@ -1,0 +1,14 @@
+[project]
+name = "belief-compatibility-mapper"
+version = "0.1.0"
+description = "Map and score compatibility between beliefs"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy",
+    "openai>=1",
+    "pydantic>=2",
+    "typer>=0.9",
+]
+
+[project.scripts]
+bcm = "main:app"
