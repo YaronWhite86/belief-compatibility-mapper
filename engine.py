@@ -7,7 +7,7 @@ import numpy as np
 from cache import RateLimiter, ResultCache
 from models import Belief, TensionCategory, TensionResult
 
-MAX_BELIEFS = 100
+MAX_BELIEFS = 50
 EMBEDDING_MODEL = "text-embedding-3-small"
 EMBEDDING_BATCH_SIZE = 128
 TENSION_MODEL = "claude-sonnet-4-5-20250929"
@@ -40,7 +40,7 @@ Score guide:
 
 
 class BeliefMap:
-    """Holds up to 100 beliefs and a 100x100 compatibility-score matrix.
+    """Holds up to 50 beliefs and a 50x50 compatibility-score matrix.
 
     The matrix is symmetric: ``scores[i][j] == scores[j][i]``.
     Diagonal entries are always 1.0 (a belief is fully compatible with itself).

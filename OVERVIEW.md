@@ -29,7 +29,7 @@ python main.py list -v
 python main.py remove 2
 ```
 
-Supports up to **100 beliefs** tracked by integer ID.
+Supports up to **50 beliefs** tracked by integer ID.
 
 ### Step 2 — Generate embeddings
 
@@ -43,7 +43,7 @@ python main.py embed
 
 ### Step 3 — Compute cosine similarity
 
-Build a 100x100 similarity matrix from the embeddings. This is a fast,
+Build a 50x50 similarity matrix from the embeddings. This is a fast,
 token-free way to measure semantic overlap between every pair.
 
 ```bash
@@ -152,7 +152,7 @@ invalidates its entries. The pair hash is order-independent
 
 A **sliding-window rate limiter** (default 50 RPM) wraps every Claude API
 call. When the budget is exhausted the process sleeps until a slot opens.
-This handles the 100-belief worst case (up to 4,950 pairs) gracefully
+This handles the 50-belief worst case (up to 1,225 pairs) gracefully
 without hitting API errors.
 
 ## Project structure
@@ -173,8 +173,8 @@ belief-compatibility-mapper/
 All state persists to a `./data/` directory:
 
 - `beliefs.json` — serialized belief objects
-- `scores.npy` — 100x100 compatibility score matrix (LLM-judged)
-- `similarity.npy` — 100x100 cosine similarity matrix (embedding-based)
+- `scores.npy` — 50x50 compatibility score matrix (LLM-judged)
+- `similarity.npy` — 50x50 cosine similarity matrix (embedding-based)
 - `cache.db` — SQLite cache for embeddings and tension results
 
 ## Requirements

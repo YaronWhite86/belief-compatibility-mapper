@@ -261,9 +261,9 @@ def analyze_map(
     if not lines:
         typer.echo("No beliefs found in file.")
         raise typer.Exit(code=1)
-    if len(lines) > 100:
-        typer.echo(f"File has {len(lines)} beliefs; max is 100. Truncating.")
-        lines = lines[:100]
+    if len(lines) > 50:
+        typer.echo(f"File has {len(lines)} beliefs; max is 50. Truncating.")
+        lines = lines[:50]
 
     bmap = _get_map()
 

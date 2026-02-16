@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 class Belief(BaseModel):
     """A single belief with its raw text, LLM-expanded definition, and embedding."""
 
-    id: int = Field(..., ge=0, lt=100, description="Unique belief index (0-99)")
+    id: int = Field(..., ge=0, lt=50, description="Unique belief index (0-49)")
     text: str = Field(..., min_length=1, description="Raw belief statement")
     expanded: str = Field(
         default="",
