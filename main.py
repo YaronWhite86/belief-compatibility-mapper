@@ -7,6 +7,7 @@ from typing import Optional
 
 import typer
 
+from cache import RateLimiter, ResultCache
 from engine import BeliefMap
 from utils import format_belief, load_map, save_map
 from visualization import export_heatmap, export_network
@@ -26,6 +27,8 @@ def _get_map() -> BeliefMap:
             _bmap = load_map(DATA_DIR)
         else:
             _bmap = BeliefMap()
+        _bmap.cache = ResultCache(DATA_DIR / "cache.db")
+        _bmap.rate_limiter = RateLimiter(max_rpm=50)
     return _bmap
 
 
@@ -185,11 +188,14 @@ def analyze_all(
     top_n: int = typer.Option(20, "--top", "-n", help="Max pairs to analyze"),
     threshold: float = typer.Option(0.7, "--threshold", "-t", help="Min cosine similarity"),
     model: str = typer.Option("claude-sonnet-4-5-20250929", "--model", "-m"),
+    force: bool = typer.Option(False, "--force", "-f", help="Re-analyze pairs that already have scores"),
 ) -> None:
     """Run tension analysis on all interesting pairs via Claude."""
     bmap = _get_map()
     typer.echo(f"Analyzing interesting pairs (threshold={threshold}, top={top_n})...\n")
-    results = bmap.analyze_interesting(top_n=top_n, threshold=threshold, model=model)
+    results = bmap.analyze_interesting(
+        top_n=top_n, threshold=threshold, model=model, force=force,
+    )
     _persist()
     if not results:
         typer.echo("No interesting pairs to analyze.")
@@ -224,6 +230,78 @@ def network(
     bmap = _get_map()
     path = export_network(bmap, output=output, edge_threshold=threshold)
     typer.echo(f"Network graph written to {path}")
+
+
+@app.command()
+def analyze_map(
+    beliefs_file: str = typer.Argument(..., help="Text file with one belief per line"),
+    output: str = typer.Option("belief_map", "--output", "-o", help="Output prefix for HTML files"),
+    threshold: float = typer.Option(0.7, "--threshold", "-t", help="Min cosine similarity for interesting pairs"),
+    top_n: int = typer.Option(50, "--top", "-n", help="Max interesting pairs to analyze"),
+    model: str = typer.Option("claude-sonnet-4-5-20250929", "--model", "-m"),
+) -> None:
+    """End-to-end pipeline: load beliefs from a text file and output HTML visualizations.
+
+    Reads one belief per line (blank lines and '#' comments are skipped).
+    Runs the full pipeline: add -> embed -> similarity -> analyze -> visualize.
+    Only new beliefs and unscored pairs are processed; cached results are reused.
+    """
+    import pathlib as _pathlib
+
+    src = _pathlib.Path(beliefs_file)
+    if not src.exists():
+        typer.echo(f"File not found: {src}")
+        raise typer.Exit(code=1)
+
+    lines = [
+        ln.strip()
+        for ln in src.read_text(encoding="utf-8").splitlines()
+        if ln.strip() and not ln.strip().startswith("#")
+    ]
+    if not lines:
+        typer.echo("No beliefs found in file.")
+        raise typer.Exit(code=1)
+    if len(lines) > 100:
+        typer.echo(f"File has {len(lines)} beliefs; max is 100. Truncating.")
+        lines = lines[:100]
+
+    bmap = _get_map()
+
+    # --- Step 1: add beliefs (skip duplicates) -----------------------
+    existing_texts = {b.text for b in bmap.list_beliefs()}
+    added = 0
+    for text in lines:
+        if text not in existing_texts:
+            bmap.add_belief(text)
+            existing_texts.add(text)
+            added += 1
+    typer.echo(f"Beliefs: {added} new, {len(bmap.list_beliefs())} total")
+
+    # --- Step 2: embed -----------------------------------------------
+    count = bmap.generate_embeddings()
+    typer.echo(f"Embeddings: {count} generated (cache + API)")
+
+    # --- Step 3: cosine similarity -----------------------------------
+    bmap.calculate_initial_similarity()
+    typer.echo("Similarity matrix computed")
+
+    # --- Step 4: interesting pairs + LLM analysis --------------------
+    results = bmap.analyze_interesting(
+        top_n=top_n, threshold=threshold, model=model,
+    )
+    typer.echo(f"Tension analysis: {len(results)} new pair(s) scored via LLM")
+    _persist()
+
+    # --- Step 5: visualize -------------------------------------------
+    n_beliefs = len(bmap.list_beliefs())
+    if n_beliefs >= 2:
+        hm = export_heatmap(bmap, output=f"{output}_heatmap.html")
+        typer.echo(f"Heatmap  -> {hm}")
+    if n_beliefs >= 1:
+        net = export_network(bmap, output=f"{output}_network.html")
+        typer.echo(f"Network  -> {net}")
+
+    typer.echo("Done.")
 
 
 if __name__ == "__main__":

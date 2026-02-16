@@ -120,6 +120,41 @@ python main.py network -o my_graph.html         # custom filename
 Both outputs use Plotly with CDN-loaded JS, so the HTML files are lightweight
 and fully interactive (zoom, pan, hover tooltips).
 
+### One-shot pipeline: `analyze-map`
+
+Feed a plain text file (one belief per line) and get the full pipeline in a
+single command. Only new beliefs are added, only missing embeddings are
+generated, and only unscored pairs are sent to Claude. Everything else is
+served from the SQLite cache.
+
+```bash
+python main.py analyze-map beliefs.txt
+python main.py analyze-map beliefs.txt --output my_report --threshold 0.6 --top 30
+```
+
+Outputs: `<prefix>_heatmap.html` and `<prefix>_network.html`.
+
+## Caching
+
+A **SQLite database** (`data/cache.db`) stores all API results keyed by
+content hash so that re-runs are nearly free:
+
+| What is cached           | Key                                         | Effect                                     |
+|--------------------------|---------------------------------------------|--------------------------------------------|
+| OpenAI embeddings        | SHA-256 of belief text + model name         | Adding 1 belief to 99 re-embeds only the 1 |
+| Claude tension results   | SHA-256 of sorted text pair + model name    | Already-judged pairs are never re-sent     |
+
+Cache keys are **content-based**: editing a belief's text automatically
+invalidates its entries. The pair hash is order-independent
+(`(A, B) == (B, A)`).
+
+## Rate limiting
+
+A **sliding-window rate limiter** (default 50 RPM) wraps every Claude API
+call. When the budget is exhausted the process sleeps until a slot opens.
+This handles the 100-belief worst case (up to 4,950 pairs) gracefully
+without hitting API errors.
+
 ## Project structure
 
 ```
@@ -127,6 +162,7 @@ belief-compatibility-mapper/
   main.py           CLI entry-point (Typer). All user-facing commands.
   models.py         Pydantic models: Belief, TensionCategory, TensionResult.
   engine.py         BeliefMap class: CRUD, embeddings, similarity, tension analysis.
+  cache.py          SQLite result cache + sliding-window rate limiter.
   visualization.py  Plotly heatmap + NetworkX force-directed graph exports.
   utils.py          Persistence (JSON + .npy) and display helpers.
   pyproject.toml    Dependencies and project metadata.
@@ -139,6 +175,7 @@ All state persists to a `./data/` directory:
 - `beliefs.json` — serialized belief objects
 - `scores.npy` — 100x100 compatibility score matrix (LLM-judged)
 - `similarity.npy` — 100x100 cosine similarity matrix (embedding-based)
+- `cache.db` — SQLite cache for embeddings and tension results
 
 ## Requirements
 
@@ -167,3 +204,4 @@ pip install numpy openai anthropic pydantic typer plotly networkx
 | `analyze-all` | Batch-analyze all interesting pairs via Claude     |
 | `heatmap`     | Export interactive HTML heatmap (scores/similarity) |
 | `network`     | Export force-directed network graph as HTML        |
+| `analyze-map` | One-shot pipeline: text file in, HTML vis out      |

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from cache import RateLimiter, ResultCache
 from models import Belief, TensionCategory, TensionResult
 
 MAX_BELIEFS = 100
@@ -57,6 +58,10 @@ class BeliefMap:
             (MAX_BELIEFS, MAX_BELIEFS), np.nan, dtype=np.float64
         )
         np.fill_diagonal(self.similarity, 1.0)
+
+        # Optional — set by the CLI layer or caller.
+        self.cache: ResultCache | None = None
+        self.rate_limiter: RateLimiter | None = None
 
     # ------------------------------------------------------------------
     # Belief CRUD
@@ -127,29 +132,54 @@ class BeliefMap:
     # ------------------------------------------------------------------
 
     def generate_embeddings(self, model: str = EMBEDDING_MODEL) -> int:
-        """Call OpenAI to embed every belief that lacks an embedding.
+        """Embed every belief that lacks an embedding.
 
-        Uses ``belief.expanded`` when available, falling back to
-        ``belief.text``.  Returns the number of beliefs newly embedded.
+        Resolution order for each belief:
+        1. Already has an in-memory embedding → skip.
+        2. SQLite cache hit → restore without an API call.
+        3. Cache miss → call OpenAI, then write to cache.
 
-        Requires the ``OPENAI_API_KEY`` environment variable to be set.
+        Returns the total number of beliefs that received an embedding
+        (cache hits + API calls).
         """
-        from openai import OpenAI  # lazy import so the dep is optional at import time
-
-        to_embed = [b for b in self.list_beliefs() if not b.embedding]
-        if not to_embed:
+        missing = [b for b in self.list_beliefs() if not b.embedding]
+        if not missing:
             return 0
 
+        # --- phase 1: fill from cache --------------------------------
+        api_needed: list[Belief] = []
+        cache_hits = 0
+        for b in missing:
+            text = b.expanded or b.text
+            if self.cache:
+                cached = self.cache.get_embedding(text, model)
+                if cached:
+                    b.embedding = cached
+                    cache_hits += 1
+                    continue
+            api_needed.append(b)
+
+        if not api_needed:
+            return cache_hits
+
+        # --- phase 2: call OpenAI for the remainder ------------------
+        from openai import OpenAI
+
         client = OpenAI()
-        count = 0
-        for i in range(0, len(to_embed), EMBEDDING_BATCH_SIZE):
-            batch = to_embed[i : i + EMBEDDING_BATCH_SIZE]
+        api_count = 0
+        for i in range(0, len(api_needed), EMBEDDING_BATCH_SIZE):
+            batch = api_needed[i : i + EMBEDDING_BATCH_SIZE]
             texts = [b.expanded or b.text for b in batch]
             response = client.embeddings.create(input=texts, model=model)
             for belief, item in zip(batch, response.data):
                 belief.embedding = item.embedding
-                count += 1
-        return count
+                if self.cache:
+                    self.cache.put_embedding(
+                        belief.expanded or belief.text, model, item.embedding
+                    )
+                api_count += 1
+
+        return cache_hits + api_count
 
     def calculate_initial_similarity(self) -> np.ndarray:
         """Build a cosine-similarity matrix from belief embeddings.
@@ -221,46 +251,61 @@ class BeliefMap:
     # LLM logical-tension analysis
     # ------------------------------------------------------------------
 
-    @staticmethod
     def analyze_logical_tension(
+        self,
         belief_a: Belief,
         belief_b: Belief,
         model: str = TENSION_MODEL,
     ) -> TensionResult:
         """Ask Claude to judge the logical relationship between two beliefs.
 
-        Returns a :class:`TensionResult` with a ``score`` (-1..+1),
-        ``category``, and one-sentence ``justification``.
+        Resolution order:
+        1. SQLite cache hit → return immediately (no API call).
+        2. Cache miss → wait for rate-limiter, call Claude, write to cache.
 
-        Requires the ``ANTHROPIC_API_KEY`` environment variable.
+        Returns a :class:`TensionResult` with ``score``, ``category``,
+        and ``justification``.
         """
         import json as _json
 
         from anthropic import Anthropic
 
-        client = Anthropic()
-
-        # Prefer the richer expanded text when available.
         desc_a = belief_a.expanded or belief_a.text
         desc_b = belief_b.expanded or belief_b.text
 
-        user_msg = (
-            f"Belief A: {desc_a}\n"
-            f"Belief B: {desc_b}"
-        )
+        # --- cache lookup --------------------------------------------
+        if self.cache:
+            cached = self.cache.get_tension(desc_a, desc_b, model)
+            if cached:
+                return cached
 
-        response = client.messages.create(
+        # --- rate-limit then call ------------------------------------
+        if self.rate_limiter:
+            self.rate_limiter.wait()
+
+        if not hasattr(self, "_anthropic_client"):
+            self._anthropic_client = Anthropic()
+
+        response = self._anthropic_client.messages.create(
             model=model,
             max_tokens=256,
             system=TENSION_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": user_msg}],
+            messages=[
+                {
+                    "role": "user",
+                    "content": f"Belief A: {desc_a}\nBelief B: {desc_b}",
+                }
+            ],
         )
 
         raw = response.content[0].text.strip()
+        result = TensionResult(**_json.loads(raw))
 
-        # Parse and validate through the Pydantic model.
-        data = _json.loads(raw)
-        return TensionResult(**data)
+        # --- write-through to cache ----------------------------------
+        if self.cache:
+            self.cache.put_tension(desc_a, desc_b, model, result)
+
+        return result
 
     def analyze_pair(
         self,
@@ -280,18 +325,21 @@ class BeliefMap:
         top_n: int = 20,
         threshold: float = 0.7,
         model: str = TENSION_MODEL,
+        force: bool = False,
     ) -> list[tuple[int, int, TensionResult]]:
-        """Run tension analysis on all interesting pairs in one batch.
+        """Run tension analysis on interesting pairs.
 
-        Calls :meth:`interesting_pairs` to select candidates, then
-        analyses each via Claude.  Scores are written into
-        ``self.scores`` as a side-effect.
+        Pairs that already have a score in the matrix are skipped
+        unless *force* is ``True``.  Even when a pair is *not* skipped,
+        the cache may still satisfy it without an API call.
 
         Returns a list of ``(id_a, id_b, TensionResult)`` tuples.
         """
         candidates = self.interesting_pairs(top_n=top_n, threshold=threshold)
         results: list[tuple[int, int, TensionResult]] = []
         for id_a, id_b, _sim in candidates:
+            if not force and not np.isnan(self.scores[id_a, id_b]):
+                continue
             result = self.analyze_pair(id_a, id_b, model=model)
             results.append((id_a, id_b, result))
         return results
