@@ -1,0 +1,136 @@
+# Belief Compatibility Mapper
+
+A CLI tool that maps relationships between personal beliefs using vector
+embeddings and LLM-powered logical analysis.
+
+## What it does
+
+You feed it belief statements. It tells you which ones harmonize, which ones
+create tension, and which ones flat-out contradict each other — backed by
+formal logic reasoning from Claude.
+
+## Pipeline
+
+```
+ Add beliefs ──> Embed (OpenAI) ──> Cosine similarity ──> Filter interesting ──> Deep analysis (Claude)
+                                                           pairs                  with scored results
+```
+
+### Step 1 — Manage beliefs
+
+Add plain-language belief statements, optionally with an expanded definition
+(for richer LLM context) and thematic tags (for cluster-based pairing).
+
+```bash
+python main.py add "Free will exists" --expanded "Humans possess libertarian free will" --tags "agency,philosophy"
+python main.py add "Determinism is true" --tags "agency,philosophy"
+python main.py add "I like apples"
+python main.py list -v
+python main.py remove 2
+```
+
+Supports up to **100 beliefs** tracked by integer ID.
+
+### Step 2 — Generate embeddings
+
+Call OpenAI to produce vector embeddings for each belief. Uses the `expanded`
+text when available for richer semantic representation.
+
+```bash
+export OPENAI_API_KEY=sk-...
+python main.py embed
+```
+
+### Step 3 — Compute cosine similarity
+
+Build a 100x100 similarity matrix from the embeddings. This is a fast,
+token-free way to measure semantic overlap between every pair.
+
+```bash
+python main.py similarity
+```
+
+### Step 4 — Identify interesting pairs
+
+Filter down to pairs that are actually worth comparing via an LLM. A pair
+qualifies if:
+
+- **Cosine similarity >= 0.7** (semantic overlap), _or_
+- **Shared thematic tag** (e.g. both tagged `"ethics"`)
+
+Everything else (e.g. "I like apples" vs. "I believe in the gold standard")
+is skipped to conserve LLM tokens.
+
+```bash
+python main.py interesting --threshold 0.7 --top 20
+```
+
+### Step 5 — LLM logical tension analysis
+
+Send each interesting pair to **Claude Sonnet** with a formal-logic system
+prompt. The model classifies the relationship and returns:
+
+| Category              | Score range | Meaning                                      |
+|-----------------------|-------------|----------------------------------------------|
+| Mutually Entailed     | +1.0        | One belief necessitates the other             |
+| Compatible/Harmonious | +0.5 to +0.9 | They support the same worldview             |
+| Neutral               |  0.0        | Unrelated                                     |
+| Tensioned             | -0.1 to -0.5 | Hard to hold both without cognitive dissonance |
+| Contradictory         | -0.6 to -1.0 | Logically impossible to hold both            |
+
+Each result includes a one-sentence justification.
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+
+# Single pair
+python main.py analyze 0 1
+
+# Batch all interesting pairs
+python main.py analyze-all --threshold 0.7 --top 20
+```
+
+## Project structure
+
+```
+belief-compatibility-mapper/
+  main.py        CLI entry-point (Typer). All user-facing commands.
+  models.py      Pydantic models: Belief, TensionCategory, TensionResult.
+  engine.py      BeliefMap class: CRUD, embeddings, similarity, tension analysis.
+  utils.py       Persistence (JSON + .npy) and display helpers.
+  pyproject.toml Dependencies and project metadata.
+```
+
+## Data storage
+
+All state persists to a `./data/` directory:
+
+- `beliefs.json` — serialized belief objects
+- `scores.npy` — 100x100 compatibility score matrix (LLM-judged)
+- `similarity.npy` — 100x100 cosine similarity matrix (embedding-based)
+
+## Requirements
+
+- Python >= 3.11
+- `OPENAI_API_KEY` for embeddings
+- `ANTHROPIC_API_KEY` for tension analysis
+
+```bash
+pip install numpy openai anthropic pydantic typer
+```
+
+## Full CLI reference
+
+| Command       | Description                                        |
+|---------------|----------------------------------------------------|
+| `add`         | Add a new belief (with optional tags / expansion)  |
+| `list`        | List all beliefs (`-v` for details)                |
+| `remove`      | Remove a belief by ID                              |
+| `score`       | Manually set a compatibility score between two IDs |
+| `show-score`  | Display the score for a pair                       |
+| `pairs`       | Show all scored pairs (with optional threshold)    |
+| `embed`       | Generate OpenAI embeddings                         |
+| `similarity`  | Compute cosine-similarity matrix                   |
+| `interesting` | Show pairs worth deep-analyzing                    |
+| `analyze`     | Run Claude tension analysis on a single pair       |
+| `analyze-all` | Batch-analyze all interesting pairs via Claude     |
