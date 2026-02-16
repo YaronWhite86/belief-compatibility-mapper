@@ -12,8 +12,8 @@ formal logic reasoning from Claude.
 ## Pipeline
 
 ```
- Add beliefs ──> Embed (OpenAI) ──> Cosine similarity ──> Filter interesting ──> Deep analysis (Claude)
-                                                           pairs                  with scored results
+ Add beliefs ──> Embed (OpenAI) ──> Cosine similarity ──> Filter interesting ──> Deep analysis (Claude) ──> Visualize
+                                                           pairs                  with scored results       (heatmap / network)
 ```
 
 ### Step 1 — Manage beliefs
@@ -90,15 +90,46 @@ python main.py analyze 0 1
 python main.py analyze-all --threshold 0.7 --top 20
 ```
 
+### Step 6 — Visualize
+
+Generate interactive HTML files you can open in any browser.
+
+**Heatmap** — the full compatibility matrix as a color-coded grid. Hover any
+cell to see both belief texts and the exact score. NaN (unscored) cells render
+as gaps.
+
+```bash
+python main.py heatmap                          # default: heatmap.html
+python main.py heatmap --matrix similarity      # cosine similarity instead
+python main.py heatmap -o my_heatmap.html       # custom filename
+```
+
+**Network graph** — beliefs as nodes, compatibility as edges. Only edges with
+`|score| > 0.5` are drawn to keep things readable. Uses a **force-directed
+layout** (NetworkX spring layout) where positive edges act as attraction
+springs so that compatible beliefs naturally cluster together. Negative
+(tensioned/contradictory) edges are drawn as dashed red lines but do not
+pull nodes together.
+
+```bash
+python main.py network                          # default: network.html
+python main.py network --threshold 0.3          # lower bar for edges
+python main.py network -o my_graph.html         # custom filename
+```
+
+Both outputs use Plotly with CDN-loaded JS, so the HTML files are lightweight
+and fully interactive (zoom, pan, hover tooltips).
+
 ## Project structure
 
 ```
 belief-compatibility-mapper/
-  main.py        CLI entry-point (Typer). All user-facing commands.
-  models.py      Pydantic models: Belief, TensionCategory, TensionResult.
-  engine.py      BeliefMap class: CRUD, embeddings, similarity, tension analysis.
-  utils.py       Persistence (JSON + .npy) and display helpers.
-  pyproject.toml Dependencies and project metadata.
+  main.py           CLI entry-point (Typer). All user-facing commands.
+  models.py         Pydantic models: Belief, TensionCategory, TensionResult.
+  engine.py         BeliefMap class: CRUD, embeddings, similarity, tension analysis.
+  visualization.py  Plotly heatmap + NetworkX force-directed graph exports.
+  utils.py          Persistence (JSON + .npy) and display helpers.
+  pyproject.toml    Dependencies and project metadata.
 ```
 
 ## Data storage
@@ -116,7 +147,7 @@ All state persists to a `./data/` directory:
 - `ANTHROPIC_API_KEY` for tension analysis
 
 ```bash
-pip install numpy openai anthropic pydantic typer
+pip install numpy openai anthropic pydantic typer plotly networkx
 ```
 
 ## Full CLI reference
@@ -134,3 +165,5 @@ pip install numpy openai anthropic pydantic typer
 | `interesting` | Show pairs worth deep-analyzing                    |
 | `analyze`     | Run Claude tension analysis on a single pair       |
 | `analyze-all` | Batch-analyze all interesting pairs via Claude     |
+| `heatmap`     | Export interactive HTML heatmap (scores/similarity) |
+| `network`     | Export force-directed network graph as HTML        |

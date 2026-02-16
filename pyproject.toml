@@ -5,8 +5,10 @@ description = "Map and score compatibility between beliefs"
 requires-python = ">=3.11"
 dependencies = [
     "anthropic>=0.39",
+    "networkx>=3",
     "numpy",
     "openai>=1",
+    "plotly>=5",
     "pydantic>=2",
     "typer>=0.9",
 ]

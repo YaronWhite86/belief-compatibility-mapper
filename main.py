@@ -9,6 +9,7 @@ import typer
 
 from engine import BeliefMap
 from utils import format_belief, load_map, save_map
+from visualization import export_heatmap, export_network
 
 app = typer.Typer(help="Belief Compatibility Mapper CLI")
 
@@ -201,6 +202,28 @@ def analyze_all(
         typer.echo(f"      B: {bb.text}")
         typer.echo(f"      {result.justification}\n")
     typer.echo(f"Analyzed {len(results)} pair(s). Scores saved to matrix.")
+
+
+@app.command()
+def heatmap(
+    output: str = typer.Option("heatmap.html", "--output", "-o"),
+    matrix: str = typer.Option("scores", "--matrix", help="'scores' or 'similarity'"),
+) -> None:
+    """Export the compatibility matrix as an interactive HTML heatmap."""
+    bmap = _get_map()
+    path = export_heatmap(bmap, output=output, matrix=matrix)
+    typer.echo(f"Heatmap written to {path}")
+
+
+@app.command()
+def network(
+    output: str = typer.Option("network.html", "--output", "-o"),
+    threshold: float = typer.Option(0.5, "--threshold", "-t", help="Min |score| to draw an edge"),
+) -> None:
+    """Export a force-directed network graph as interactive HTML."""
+    bmap = _get_map()
+    path = export_network(bmap, output=output, edge_threshold=threshold)
+    typer.echo(f"Network graph written to {path}")
 
 
 if __name__ == "__main__":

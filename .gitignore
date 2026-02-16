@@ -8,3 +8,5 @@ dist/
 build/
 data/
 .env
+heatmap.html
+network.html
