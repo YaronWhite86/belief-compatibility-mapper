@@ -13,7 +13,7 @@ from models import Belief, TensionCategory, TensionResult
 
 logger = logging.getLogger(__name__)
 
-MAX_BELIEFS = 50
+MAX_BELIEFS = 15
 EMBEDDING_MODEL = "text-embedding-3-small"
 LOCAL_EMBEDDING_MODEL = "local-tfidf"
 EMBEDDING_BATCH_SIZE = 128

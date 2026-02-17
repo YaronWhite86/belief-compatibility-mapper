@@ -18,6 +18,7 @@ from visualization import export_heatmap, export_network
 app = typer.Typer(help="Belief Compatibility Mapper CLI")
 
 DATA_DIR = pathlib.Path("./data")
+OFFLINE_OUTPUT_DIR = pathlib.Path("./offline_output")
 
 # Module-level state so sub-commands share the same map.
 _bmap: BeliefMap | None = None
@@ -362,9 +363,9 @@ def analyze_map(
         if not lines:
             typer.echo("Error: No beliefs found in file.", err=True)
             raise typer.Exit(code=1)
-        if len(lines) > 50:
-            typer.echo(f"File has {len(lines)} beliefs; max is 50. Truncating.")
-            lines = lines[:50]
+        if len(lines) > 15:
+            typer.echo(f"File has {len(lines)} beliefs; max is 15. Truncating.")
+            lines = lines[:15]
 
         # Validate API key before starting the pipeline (if using LLM model)
         if not model.startswith("local"):
@@ -456,6 +457,7 @@ def demo(
 ) -> None:
     """Load a predefined belief profile with pre-scored compatibility and generate visualizations instantly (no API calls)."""
     import json
+    from datetime import datetime
 
     available = sorted(p.stem for p in PROFILES_DIR.glob("*.json"))
 
@@ -479,7 +481,9 @@ def demo(
     beliefs_list = data["beliefs"]
     score_matrix = data["scores"]
     justifications = data.get("justifications", {})
-    prefix = output or profile
+    OFFLINE_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    prefix = output or str(OFFLINE_OUTPUT_DIR / f"{profile}_{ts}")
 
     typer.echo(f"Profile: {data.get('name', profile)}")
     typer.echo(f"  {data.get('description', '')}\n")
