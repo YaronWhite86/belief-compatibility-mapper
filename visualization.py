@@ -14,36 +14,32 @@ from engine import BeliefMap
 # ------------------------------------------------------------------
 
 
-def export_heatmap(
-    bmap: BeliefMap,
-    output: str | pathlib.Path = "heatmap.html",
-    matrix: str = "scores",
+def build_heatmap_figure(
+    beliefs: list,
+    scores: np.ndarray,
     title: str = "Belief Compatibility Matrix",
-) -> pathlib.Path:
-    """Render the score (or similarity) matrix as an interactive HTML heatmap.
+):
+    """Build a Plotly heatmap figure from beliefs and a score matrix.
 
     Parameters
     ----------
-    bmap : BeliefMap
-    output : path for the generated HTML file
-    matrix : ``"scores"`` (LLM-judged) or ``"similarity"`` (cosine)
+    beliefs : list of Belief objects (must have .id and .text)
+    scores : 2-D numpy array indexed by belief ID
     title : heading shown above the heatmap
 
     Returns
     -------
-    pathlib.Path to the written file.
+    plotly.graph_objects.Figure
     """
     import plotly.graph_objects as go
 
-    beliefs = bmap.list_beliefs()
     if len(beliefs) < 2:
         raise ValueError("Need at least 2 beliefs to draw a heatmap")
 
     ids = [b.id for b in beliefs]
     labels = [f"[{b.id}] {b.text[:50]}" for b in beliefs]
 
-    source = bmap.scores if matrix == "scores" else bmap.similarity
-    sub = source[np.ix_(ids, ids)].copy()
+    sub = scores[np.ix_(ids, ids)].copy()
 
     # Build hover text with full belief names and score.
     hover: list[list[str]] = []
@@ -94,6 +90,32 @@ def export_heatmap(
         template="plotly_white",
     )
 
+    return fig
+
+
+def export_heatmap(
+    bmap: BeliefMap,
+    output: str | pathlib.Path = "heatmap.html",
+    matrix: str = "scores",
+    title: str = "Belief Compatibility Matrix",
+) -> pathlib.Path:
+    """Render the score (or similarity) matrix as an interactive HTML heatmap.
+
+    Parameters
+    ----------
+    bmap : BeliefMap
+    output : path for the generated HTML file
+    matrix : ``"scores"`` (LLM-judged) or ``"similarity"`` (cosine)
+    title : heading shown above the heatmap
+
+    Returns
+    -------
+    pathlib.Path to the written file.
+    """
+    beliefs = bmap.list_beliefs()
+    source = bmap.scores if matrix == "scores" else bmap.similarity
+    fig = build_heatmap_figure(beliefs, source, title=title)
+
     output = pathlib.Path(output)
     fig.write_html(str(output), include_plotlyjs="cdn")
     return output
@@ -104,33 +126,30 @@ def export_heatmap(
 # ------------------------------------------------------------------
 
 
-def export_network(
-    bmap: BeliefMap,
-    output: str | pathlib.Path = "network.html",
+def build_network_figure(
+    beliefs: list,
+    beliefs_dict: dict,
+    scores: np.ndarray,
     edge_threshold: float = 0.5,
     title: str = "Belief Compatibility Network",
-) -> pathlib.Path:
-    """Render beliefs as a force-directed network graph in HTML.
-
-    Nodes are beliefs.  Edges are drawn only when ``|score| > edge_threshold``
-    to keep the graph readable.  The spring layout uses **positive** edges as
-    attraction springs so that compatible beliefs naturally cluster together.
+):
+    """Build a Plotly force-directed network graph figure.
 
     Parameters
     ----------
-    bmap : BeliefMap
-    output : path for the generated HTML file
+    beliefs : list of Belief objects (sorted)
+    beliefs_dict : dict mapping belief ID -> Belief (for text lookup)
+    scores : 2-D numpy array indexed by belief ID
     edge_threshold : minimum ``|score|`` to draw an edge (default 0.5)
     title : heading shown above the graph
 
     Returns
     -------
-    pathlib.Path to the written file.
+    plotly.graph_objects.Figure
     """
     import networkx as nx
     import plotly.graph_objects as go
 
-    beliefs = bmap.list_beliefs()
     if not beliefs:
         raise ValueError("No beliefs to graph")
 
@@ -140,10 +159,10 @@ def export_network(
         G.add_node(b.id, text=b.text)
 
     edges: list[tuple[int, int, float]] = []
-    ids = sorted(bmap.beliefs)
+    ids = sorted(beliefs_dict)
     for i, a in enumerate(ids):
         for b_id in ids[i + 1 :]:
-            val = float(bmap.scores[a, b_id])
+            val = float(scores[a, b_id])
             if np.isnan(val):
                 continue
             if abs(val) >= edge_threshold:
@@ -177,8 +196,8 @@ def export_network(
 
         mid_x, mid_y = (x0 + x1) / 2, (y0 + y1) / 2
         label = (
-            f"{bmap.beliefs[a].text}<br>vs.<br>"
-            f"{bmap.beliefs[b_id].text}<br>Score: {val:+.3f}"
+            f"{beliefs_dict[a].text}<br>vs.<br>"
+            f"{beliefs_dict[b_id].text}<br>Score: {val:+.3f}"
         )
         target_hover = pos_hover if val > 0 else neg_hover
         target_hover.append(dict(x=mid_x, y=mid_y, text=label))
@@ -226,7 +245,7 @@ def export_network(
         node_color.append(float(np.mean(neighbours)) if neighbours else 0.0)
 
     node_text = [
-        f"<b>[{n}] {bmap.beliefs[n].text}</b><br>"
+        f"<b>[{n}] {beliefs_dict[n].text}</b><br>"
         f"Edges: {G.degree(n)}<br>"
         f"Avg score: {c:+.2f}"
         for n, c in zip(G.nodes, node_color)
@@ -264,6 +283,38 @@ def export_network(
         width=900,
         height=700,
         template="plotly_white",
+    )
+
+    return fig
+
+
+def export_network(
+    bmap: BeliefMap,
+    output: str | pathlib.Path = "network.html",
+    edge_threshold: float = 0.5,
+    title: str = "Belief Compatibility Network",
+) -> pathlib.Path:
+    """Render beliefs as a force-directed network graph in HTML.
+
+    Nodes are beliefs.  Edges are drawn only when ``|score| > edge_threshold``
+    to keep the graph readable.  The spring layout uses **positive** edges as
+    attraction springs so that compatible beliefs naturally cluster together.
+
+    Parameters
+    ----------
+    bmap : BeliefMap
+    output : path for the generated HTML file
+    edge_threshold : minimum ``|score|`` to draw an edge (default 0.5)
+    title : heading shown above the graph
+
+    Returns
+    -------
+    pathlib.Path to the written file.
+    """
+    beliefs = bmap.list_beliefs()
+    fig = build_network_figure(
+        beliefs, bmap.beliefs, bmap.scores,
+        edge_threshold=edge_threshold, title=title,
     )
 
     output = pathlib.Path(output)

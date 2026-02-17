@@ -16,10 +16,14 @@ dependencies = [
 
 [project.optional-dependencies]
 tfidf = ["scikit-learn>=1.3"]
+streamlit = ["streamlit>=1.32", "scikit-learn>=1.3"]
 test = ["pytest>=8", "scikit-learn>=1.3"]
 
 [project.scripts]
 bcm = "main:app"
+
+[tool.setuptools]
+py-modules = ["main", "engine", "models", "cache", "visualization", "utils", "app"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

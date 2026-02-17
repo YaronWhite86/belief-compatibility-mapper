@@ -65,7 +65,7 @@ class ResultCache:
     def __init__(self, path: str | pathlib.Path = DEFAULT_CACHE_PATH) -> None:
         self.path = pathlib.Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(str(self.path))
+        self._conn = sqlite3.connect(str(self.path), check_same_thread=False)
         self._init_tables()
 
     def _init_tables(self) -> None:
