@@ -47,6 +47,68 @@ class TestBeliefCRUD:
             bm.add_belief("one too many")
 
 
+class TestEditBelief:
+    def test_edit_text(self, belief_map_factory):
+        bm = belief_map_factory(beliefs=["Alpha", "Beta"])
+        result = bm.edit_belief(0, text="Alpha revised")
+        assert result.text == "Alpha revised"
+        assert bm.get_belief(0).text == "Alpha revised"
+
+    def test_edit_expanded(self, belief_map_factory):
+        bm = belief_map_factory(beliefs=["Alpha"])
+        bm.edit_belief(0, expanded="A longer explanation")
+        assert bm.get_belief(0).expanded == "A longer explanation"
+
+    def test_edit_tags(self, belief_map_factory):
+        bm = belief_map_factory(beliefs=["Alpha"])
+        bm.edit_belief(0, tags=["ethics", "logic"])
+        assert bm.get_belief(0).tags == ["ethics", "logic"]
+
+    def test_edit_text_clears_embedding(self, belief_map_factory):
+        bm = belief_map_factory(beliefs=["Alpha"])
+        bm.generate_embeddings()
+        assert bm.get_belief(0).embedding  # non-empty
+        bm.edit_belief(0, text="Alpha revised")
+        assert bm.get_belief(0).embedding == []
+
+    def test_edit_text_clears_scores(self, belief_map_factory):
+        bm = belief_map_factory(beliefs=["Alpha", "Beta"])
+        bm.set_score(0, 1, 0.5)
+        bm.edit_belief(0, text="Alpha revised")
+        assert np.isnan(bm.scores[0, 1])
+        assert np.isnan(bm.scores[1, 0])
+
+    def test_edit_expanded_preserves_scores(self, belief_map_factory):
+        bm = belief_map_factory(beliefs=["Alpha", "Beta"])
+        bm.set_score(0, 1, 0.5)
+        bm.edit_belief(0, expanded="New explanation")
+        assert bm.get_score(0, 1) == 0.5  # scores kept
+
+    def test_edit_nonexistent_belief(self, belief_map_factory):
+        bm = belief_map_factory(beliefs=["Alpha"])
+        with pytest.raises(KeyError):
+            bm.edit_belief(99, text="Anything")
+
+    def test_edit_duplicate_text(self, belief_map_factory):
+        bm = belief_map_factory(beliefs=["Alpha", "Beta"])
+        with pytest.raises(ValueError, match="Duplicate"):
+            bm.edit_belief(0, text="Beta")
+
+    def test_edit_same_text_is_noop(self, belief_map_factory):
+        bm = belief_map_factory(beliefs=["Alpha", "Beta"])
+        bm.set_score(0, 1, 0.5)
+        bm.generate_embeddings()
+        bm.edit_belief(0, text="Alpha")  # same text
+        assert bm.get_score(0, 1) == 0.5  # scores preserved
+        assert bm.get_belief(0).embedding  # embedding preserved
+
+    def test_edit_preserves_id(self, belief_map_factory):
+        bm = belief_map_factory(beliefs=["Alpha", "Beta"])
+        bm.edit_belief(1, text="Beta revised")
+        assert bm.get_belief(1).text == "Beta revised"
+        assert bm.get_belief(1).id == 1
+
+
 class TestScores:
     def test_set_and_get_score(self, belief_map_factory):
         bm = belief_map_factory(beliefs=["A", "B"])

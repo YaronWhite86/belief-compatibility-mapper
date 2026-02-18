@@ -129,6 +129,33 @@ def remove(belief_id: int = typer.Argument(..., help="ID of the belief to remove
 
 
 @app.command()
+def edit(
+    belief_id: int = typer.Argument(..., help="ID of the belief to edit"),
+    text: Optional[str] = typer.Option(None, "--text", "-t", help="New belief text"),
+    expanded: Optional[str] = typer.Option(None, "--expanded", "-e", help="New expanded definition"),
+    tags: Optional[str] = typer.Option(None, "--tags", help="New comma-separated tags (replaces existing)"),
+) -> None:
+    """Edit a belief's text, expanded definition, or tags.
+
+    When the text changes, embeddings and scores for this belief are
+    invalidated and will need to be recomputed.
+    """
+    if text is None and expanded is None and tags is None:
+        typer.echo("Nothing to change. Provide --text, --expanded, or --tags.", err=True)
+        raise typer.Exit(code=1)
+    try:
+        bmap = _get_map()
+        tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags is not None else None
+        belief = bmap.edit_belief(belief_id, text=text, expanded=expanded, tags=tag_list)
+        _persist()
+        typer.echo(f"Updated belief {belief.id}: {belief.text}")
+        if text is not None:
+            typer.echo("  Embeddings and scores cleared (text changed). Re-run embed + analysis.")
+    except (KeyError, ValueError) as exc:
+        _handle_error(exc)
+
+
+@app.command()
 def score(
     id_a: int = typer.Argument(..., help="First belief ID"),
     id_b: int = typer.Argument(..., help="Second belief ID"),

@@ -220,6 +220,48 @@ class BeliefMap:
         self.scores[:, belief_id] = np.nan
         self.scores[belief_id, belief_id] = 1.0  # keep diagonal convention
 
+    def edit_belief(
+        self,
+        belief_id: int,
+        text: str | None = None,
+        expanded: str | None = None,
+        tags: list[str] | None = None,
+    ) -> Belief:
+        """Edit a belief's text, expanded definition, or tags.
+
+        When *text* changes the embedding and all scores for this belief are
+        invalidated (cleared) because they were computed from the old wording.
+        Changing only *expanded* or *tags* does not invalidate scores.
+
+        Raises KeyError if the belief does not exist, ValueError if the new
+        text duplicates another belief.
+        """
+        if belief_id not in self.beliefs:
+            raise KeyError(f"Belief {belief_id} not found")
+
+        belief = self.beliefs[belief_id]
+        text_changed = text is not None and text != belief.text
+
+        if text_changed:
+            existing_texts = {
+                b.text for b in self.beliefs.values() if b.id != belief_id
+            }
+            if text in existing_texts:
+                raise ValueError(f"Duplicate belief: {text!r}")
+            belief.text = text
+            # Invalidate embedding and scores — they were based on old text.
+            belief.embedding = []
+            self.scores[belief_id, :] = np.nan
+            self.scores[:, belief_id] = np.nan
+            self.scores[belief_id, belief_id] = 1.0
+
+        if expanded is not None:
+            belief.expanded = expanded
+        if tags is not None:
+            belief.tags = tags
+
+        return belief
+
     def get_belief(self, belief_id: int) -> Belief:
         if belief_id not in self.beliefs:
             raise KeyError(f"Belief {belief_id} not found")
