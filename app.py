@@ -224,6 +224,36 @@ with st.sidebar:
 
     st.divider()
 
+    # -- Recommend Belief --
+    st.subheader("Recommend Belief")
+    st.caption("Requires ANTHROPIC_API_KEY")
+    rec_style = st.selectbox(
+        "Style",
+        ["complementary", "harmonious", "challenging"],
+        key="rec_style",
+        help="How the suggested belief should relate to your existing ones.",
+    )
+    rec_count = st.number_input("Count", min_value=1, max_value=5, value=1, key="rec_count")
+    if st.button("Get Recommendations", key="rec_btn"):
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            st.error("ANTHROPIC_API_KEY is not set. Set it before launching Streamlit.")
+        elif len(engine.beliefs) < 2:
+            st.warning("Add at least 2 beliefs before requesting recommendations.")
+        else:
+            with st.spinner("Asking Claude..."):
+                try:
+                    recs = engine.recommend_belief(
+                        count=int(rec_count),
+                        style=rec_style,
+                        model=analysis_model,
+                    )
+                    st.session_state.recommendations = recs
+                    st.success(f"Got {len(recs)} recommendation(s). See the Recommendations tab.")
+                except Exception as exc:
+                    st.error(f"Error: {exc}")
+
+    st.divider()
+
     # -- Reset --
     if st.button("Reset All", key="reset_btn", type="secondary"):
         _reset_engine()
@@ -237,8 +267,8 @@ with st.sidebar:
 
 beliefs = engine.list_beliefs()
 
-tab_beliefs, tab_heatmap, tab_network, tab_pairs = st.tabs(
-    ["Beliefs", "Heatmap", "Network Graph", "Scored Pairs"]
+tab_beliefs, tab_heatmap, tab_network, tab_pairs, tab_recs = st.tabs(
+    ["Beliefs", "Heatmap", "Network Graph", "Scored Pairs", "Recommendations"]
 )
 
 # -- Tab 1: Beliefs table --
@@ -316,3 +346,31 @@ with tab_pairs:
                 "Justification": just,
             })
         st.dataframe(rows, width="stretch", hide_index=True)
+
+# -- Tab 5: Recommendations --
+with tab_recs:
+    recs = st.session_state.get("recommendations", [])
+    if not recs:
+        st.info(
+            "No recommendations yet. Use 'Recommend Belief' in the sidebar "
+            "to ask Claude for belief suggestions."
+        )
+    else:
+        st.caption(
+            f"{len(recs)} recommendation(s) — click 'Add to map' to include a belief."
+        )
+        for i, rec in enumerate(recs):
+            with st.container(border=True):
+                st.markdown(f"**{rec.text}**")
+                st.caption(rec.justification)
+                if st.button("Add to map", key=f"add_rec_{i}"):
+                    if len(engine.beliefs) >= MAX_BELIEFS:
+                        st.warning(f"Maximum of {MAX_BELIEFS} beliefs reached.")
+                    else:
+                        try:
+                            b = engine.add_belief(rec.text)
+                            _persist()
+                            st.success(f"Added as belief [{b.id}].")
+                            st.rerun()
+                        except ValueError as exc:
+                            st.error(str(exc))
