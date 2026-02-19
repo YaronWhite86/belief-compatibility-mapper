@@ -9,7 +9,7 @@ import time
 import numpy as np
 
 from cache import RateLimiter, ResultCache
-from models import Belief, BeliefRecommendation, TensionCategory, TensionResult
+from models import Belief, BedrockPrinciple, BeliefRecommendation, TensionCategory, TensionResult
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +69,37 @@ Rules:
 - Return exactly the number of recommendations requested.
 - Never repeat or paraphrase a belief already in the list.
 - Keep each "text" under 20 words.\
+"""
+
+
+BEDROCK_SYSTEM_PROMPT = """\
+You are a philosopher specializing in the deep structure of belief systems. \
+Given a numbered list of a person's beliefs, identify the upstream foundational \
+principles — implicit commitments they have not stated explicitly — that \
+logically unify two or more of those beliefs.
+
+A bedrock principle is an axiom, value, or worldview commitment that, if held, \
+makes two or more of the listed beliefs natural consequences or coherent expressions. \
+It is upstream of the surface beliefs, not a restatement of them.
+
+Output ONLY valid JSON (no markdown fences):
+{
+  "principles": [
+    {
+      "principle": "<concise statement of the foundational commitment, ≤25 words>",
+      "belief_ids": [<integer IDs from the numbered list, 2 or more>],
+      "coherence": <float 0.0–1.0 indicating how strongly these beliefs cluster>,
+      "explanation": "<one sentence explaining why these beliefs share this principle>"
+    }
+  ]
+}
+
+Rules:
+- Return at least 1 principle and no more than 5.
+- Every principle must cover at least 2 different belief IDs.
+- belief_ids must be integers that appear in the numbered list.
+- coherence 1.0 means the beliefs are almost definitionally expressions of this principle.
+- Prefer depth: a principle covering 4 beliefs is better than two covering 2 each.\
 """
 
 
@@ -654,6 +685,88 @@ class BeliefMap:
         raise RuntimeError(
             f"All {MAX_RETRIES} attempts failed for recommend: {last_error}"
         )
+
+    def identify_bedrock_principles(self, model: str = TENSION_MODEL) -> list[BedrockPrinciple]:
+        """Ask Claude to identify implicit foundational principles that unify beliefs.
+
+        Returns a list of :class:`BedrockPrinciple` objects.
+        Raises ``ValueError`` if fewer than 2 beliefs exist.
+        Raises ``RuntimeError`` if all retries are exhausted.
+        """
+        import json as _json
+
+        beliefs = self.list_beliefs()
+        if len(beliefs) < 2:
+            raise ValueError("At least 2 beliefs are required to identify bedrock principles.")
+
+        belief_map_content = {b.id: b.expanded or b.text for b in beliefs}
+        belief_hash = self.cache._belief_map_hash(belief_map_content) if self.cache else None
+        if self.cache and belief_hash:
+            cached = self.cache.get_bedrock(belief_hash, model)
+            if cached is not None:
+                return cached
+
+        belief_lines = "\n".join(f"{b.id}: {b.expanded or b.text}" for b in beliefs)
+        user_message = (
+            "Here are the person's beliefs (each prefixed by its integer ID):\n"
+            f"{belief_lines}\n\n"
+            "Identify the bedrock principles that underlie two or more of these beliefs."
+        )
+
+        if not hasattr(self, "_anthropic_client"):
+            from anthropic import Anthropic
+            self._anthropic_client = Anthropic()
+
+        valid_ids = set(self.beliefs.keys())
+        last_error: Exception | None = None
+        for attempt in range(MAX_RETRIES):
+            try:
+                if self.rate_limiter:
+                    self.rate_limiter.wait()
+                response = self._anthropic_client.messages.create(
+                    model=model, max_tokens=1024,
+                    system=BEDROCK_SYSTEM_PROMPT,
+                    messages=[{"role": "user", "content": user_message}],
+                )
+                if getattr(response, "stop_reason", None) == "max_tokens":
+                    raise ValueError("Response truncated")
+                raw = _strip_markdown_fences(response.content[0].text)
+                principles_raw = _json.loads(raw).get("principles", [])
+                if not principles_raw:
+                    raise ValueError("Response missing 'principles' list")
+
+                results = []
+                for item in principles_raw:
+                    try:
+                        p = BedrockPrinciple(**item)
+                    except Exception as exc:
+                        logger.warning("Skipping invalid principle: %s", exc)
+                        continue
+                    valid_bids = [bid for bid in p.belief_ids if bid in valid_ids]
+                    if len(valid_bids) < 2:
+                        continue
+                    if len(valid_bids) != len(p.belief_ids):
+                        p = BedrockPrinciple(
+                            principle=p.principle,
+                            belief_ids=valid_bids,
+                            coherence=p.coherence,
+                            explanation=p.explanation,
+                        )
+                    results.append(p)
+
+                if not results:
+                    raise ValueError("All principles were invalid after filtering")
+
+                if self.cache and belief_hash:
+                    self.cache.put_bedrock(belief_hash, model, results)
+                return results
+
+            except Exception as exc:
+                last_error = exc
+                if attempt < MAX_RETRIES - 1:
+                    time.sleep(RETRY_BACKOFF_BASE ** attempt)
+
+        raise RuntimeError(f"All {MAX_RETRIES} attempts failed: {last_error}")
 
     def analyze_interesting(
         self,

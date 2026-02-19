@@ -372,6 +372,37 @@ def recommend(
         _handle_error(exc)
 
 
+@app.command("identify-bedrock")
+def identify_bedrock(
+    model: str = typer.Option("claude-sonnet-4-5-latest", "--model", "-m"),
+) -> None:
+    """Surface implicit foundational principles that unify your beliefs."""
+    _check_anthropic_key()
+    try:
+        bmap = _get_map()
+        if len(bmap.beliefs) < 2:
+            typer.echo("Error: At least 2 beliefs required.", err=True)
+            raise typer.Exit(code=1)
+        with Progress(SpinnerColumn(), TextColumn("{task.description}"), transient=True) as p:
+            p.add_task("Asking Claude for bedrock principles...", total=None)
+            principles = bmap.identify_bedrock_principles(model=model)
+        typer.echo(f"\nFound {len(principles)} bedrock principle(s):\n{'='*60}")
+        for i, p in enumerate(principles, 1):
+            typer.echo(f"\n{i}. {p.principle}")
+            typer.echo(f"   Coherence: {p.coherence:.2f}")
+            typer.echo(f"   Explanation: {p.explanation}")
+            typer.echo("   Supporting beliefs:")
+            for bid in p.belief_ids:
+                b = bmap.beliefs.get(bid)
+                if b:
+                    typer.echo(f"     [{bid}] {b.text}")
+        typer.echo('\nHint: use `python main.py add "<principle>"` to add it to your map.')
+    except typer.Exit:
+        raise
+    except Exception as exc:
+        _handle_error(exc)
+
+
 @app.command()
 def heatmap(
     output: str = typer.Option("heatmap.html", "--output", "-o"),

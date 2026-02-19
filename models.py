@@ -57,3 +57,12 @@ class BeliefRecommendation(BaseModel):
 
     text: str = Field(..., min_length=1)
     justification: str = Field(..., min_length=1)
+
+
+class BedrockPrinciple(BaseModel):
+    """An implicit foundational principle that unifies two or more beliefs."""
+
+    principle: str = Field(..., min_length=1)
+    belief_ids: list[int] = Field(..., min_length=2)
+    coherence: float = Field(..., ge=0.0, le=1.0)
+    explanation: str = Field(..., min_length=1)

@@ -66,6 +66,19 @@ def _fake_recommend_json(count: int) -> str:
     return json.dumps({"recommendations": recs})
 
 
+def _fake_bedrock_json(user_msg: str) -> str:
+    """Return a deterministic bedrock principles JSON derived from *user_msg*."""
+    import re
+    found = re.findall(r"^(\d+):", user_msg, re.MULTILINE)
+    ids = [int(x) for x in found[:2]] if len(found) >= 2 else [0, 1]
+    return json.dumps({"principles": [{
+        "principle": "Mock foundational commitment to rational consistency",
+        "belief_ids": ids,
+        "coherence": 0.85,
+        "explanation": "Mock: both beliefs follow from rational consistency.",
+    }]})
+
+
 # ------------------------------------------------------------------
 # Mock fixtures
 # ------------------------------------------------------------------
@@ -94,6 +107,11 @@ def mock_anthropic():
     def _messages_create(*, model, max_tokens, system, messages, **kw):
         import re
         user_msg = messages[0]["content"]
+        if "bedrock" in system.lower():
+            return SimpleNamespace(
+                content=[SimpleNamespace(text=_fake_bedrock_json(user_msg))],
+                stop_reason="end_turn",
+            )
         if "recommendations" in system:
             m = re.search(r"Number of recommendations requested:\s*(\d+)", user_msg)
             count = int(m.group(1)) if m else 1

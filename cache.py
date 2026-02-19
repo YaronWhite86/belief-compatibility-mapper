@@ -9,7 +9,7 @@ import sqlite3
 import time
 from collections import deque
 
-from models import TensionResult
+from models import BedrockPrinciple, TensionResult
 
 DEFAULT_CACHE_PATH = pathlib.Path("./data/cache.db")
 
@@ -83,6 +83,12 @@ class ResultCache:
                 result_json TEXT NOT NULL,
                 PRIMARY KEY (pair_hash, model)
             );
+            CREATE TABLE IF NOT EXISTS bedrock_results (
+                belief_hash  TEXT NOT NULL,
+                model        TEXT NOT NULL,
+                result_json  TEXT NOT NULL,
+                PRIMARY KEY (belief_hash, model)
+            );
             """
         )
         self._conn.commit()
@@ -98,6 +104,15 @@ class ResultCache:
         """Order-independent hash for a pair of texts."""
         a, b = sorted([text_a, text_b])
         return hashlib.sha256(f"{a}|||{b}".encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _belief_map_hash(beliefs: dict[int, str]) -> str:
+        """Content-addressed hash of the entire belief map {id: text}."""
+        canonical = json.dumps(
+            {str(k): v for k, v in sorted(beliefs.items())},
+            ensure_ascii=False, sort_keys=True,
+        )
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
     # -- embeddings ---------------------------------------------------
 
@@ -130,6 +145,24 @@ class ResultCache:
         self._conn.execute(
             "INSERT OR REPLACE INTO tension_results (pair_hash, model, result_json) VALUES (?, ?, ?)",
             (self._pair_hash(text_a, text_b), model, result.model_dump_json()),
+        )
+        self._conn.commit()
+
+    # -- bedrock results ----------------------------------------------
+
+    def get_bedrock(self, belief_hash: str, model: str) -> list[BedrockPrinciple] | None:
+        row = self._conn.execute(
+            "SELECT result_json FROM bedrock_results WHERE belief_hash=? AND model=?",
+            (belief_hash, model),
+        ).fetchone()
+        if row is None:
+            return None
+        return [BedrockPrinciple(**item) for item in json.loads(row[0])]
+
+    def put_bedrock(self, belief_hash: str, model: str, results: list[BedrockPrinciple]) -> None:
+        self._conn.execute(
+            "INSERT OR REPLACE INTO bedrock_results (belief_hash, model, result_json) VALUES (?,?,?)",
+            (belief_hash, model, json.dumps([r.model_dump() for r in results])),
         )
         self._conn.commit()
 

@@ -254,10 +254,30 @@ with st.sidebar:
 
     st.divider()
 
+    # -- Bedrock Principles --
+    st.subheader("Bedrock Principles")
+    st.caption("Requires ANTHROPIC_API_KEY")
+    if st.button("Find Bedrock Principles", key="bedrock_btn"):
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            st.error("ANTHROPIC_API_KEY is not set. Set it before launching Streamlit.")
+        elif len(engine.beliefs) < 2:
+            st.warning("Add at least 2 beliefs before identifying bedrock principles.")
+        else:
+            with st.spinner("Asking Claude for bedrock principles..."):
+                try:
+                    principles = engine.identify_bedrock_principles(model=analysis_model)
+                    st.session_state.bedrock_principles = principles
+                    st.success(f"Found {len(principles)} principle(s). See the Bedrock tab.")
+                except Exception as exc:
+                    st.error(f"Error: {exc}")
+
+    st.divider()
+
     # -- Reset --
     if st.button("Reset All", key="reset_btn", type="secondary"):
         _reset_engine()
         st.session_state.pop("justifications", None)
+        st.session_state.pop("bedrock_principles", None)
         st.rerun()
 
 
@@ -267,8 +287,8 @@ with st.sidebar:
 
 beliefs = engine.list_beliefs()
 
-tab_beliefs, tab_heatmap, tab_network, tab_pairs, tab_recs = st.tabs(
-    ["Beliefs", "Heatmap", "Network Graph", "Scored Pairs", "Recommendations"]
+tab_beliefs, tab_heatmap, tab_network, tab_pairs, tab_recs, tab_bedrock = st.tabs(
+    ["Beliefs", "Heatmap", "Network Graph", "Scored Pairs", "Recommendations", "Bedrock"]
 )
 
 # -- Tab 1: Beliefs table --
@@ -369,6 +389,44 @@ with tab_recs:
                     else:
                         try:
                             b = engine.add_belief(rec.text)
+                            _persist()
+                            st.success(f"Added as belief [{b.id}].")
+                            st.rerun()
+                        except ValueError as exc:
+                            st.error(str(exc))
+
+# -- Tab 6: Bedrock Principles --
+with tab_bedrock:
+    principles = st.session_state.get("bedrock_principles", [])
+    if not principles:
+        st.info(
+            "No bedrock principles yet. Use 'Find Bedrock Principles' in the sidebar "
+            "to ask Claude to identify implicit foundational commitments in your belief map."
+        )
+    else:
+        st.caption(
+            f"{len(principles)} bedrock principle(s) — implicit upstream commitments "
+            "that unify your surface beliefs."
+        )
+        for i, p in enumerate(principles):
+            with st.container(border=True):
+                st.markdown(f"### {p.principle}")
+                coh = p.coherence
+                color = "green" if coh >= 0.7 else ("orange" if coh >= 0.4 else "red")
+                label = "Strong" if coh >= 0.7 else ("Moderate" if coh >= 0.4 else "Tentative")
+                st.markdown(f"**Coherence:** :{color}[{label} ({coh:.2f})]")
+                st.caption(p.explanation)
+                with st.expander(f"Supporting beliefs ({len(p.belief_ids)})"):
+                    for bid in p.belief_ids:
+                        b = engine.beliefs.get(bid)
+                        if b:
+                            st.markdown(f"- **[{bid}]** {b.text}")
+                if st.button("Add to map", key=f"add_bedrock_{i}"):
+                    if len(engine.beliefs) >= MAX_BELIEFS:
+                        st.warning(f"Maximum of {MAX_BELIEFS} beliefs reached.")
+                    else:
+                        try:
+                            b = engine.add_belief(p.principle)
                             _persist()
                             st.success(f"Added as belief [{b.id}].")
                             st.rerun()
