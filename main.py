@@ -19,6 +19,7 @@ app = typer.Typer(help="Belief Compatibility Mapper CLI")
 
 DATA_DIR = pathlib.Path("./data")
 OFFLINE_OUTPUT_DIR = pathlib.Path("./offline_output")
+RECOMMEND_STYLES = {"harmonious", "complementary", "challenging"}
 
 # Module-level state so sub-commands share the same map.
 _bmap: BeliefMap | None = None
@@ -321,6 +322,52 @@ def analyze_all(
             typer.echo(f"      B: {bb.text}")
             typer.echo(f"      {result.justification}\n")
         typer.echo(f"Analyzed {len(results)} pair(s). Scores saved to matrix.")
+    except Exception as exc:
+        _handle_error(exc)
+
+
+@app.command()
+def recommend(
+    count: int = typer.Option(1, "--count", "-n", help="Number of recommendations"),
+    style: str = typer.Option(
+        "complementary", "--style", "-s",
+        help="harmonious | complementary | challenging",
+    ),
+    model: str = typer.Option("claude-sonnet-4-5-latest", "--model", "-m"),
+) -> None:
+    """Suggest new beliefs that would fit your existing set.
+
+    Displays suggestions only. Use 'add' to add one to your map.
+    """
+    _check_anthropic_key()
+    try:
+        if style not in RECOMMEND_STYLES:
+            typer.echo(
+                f"Error: --style must be one of: {', '.join(sorted(RECOMMEND_STYLES))}",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        if count < 1:
+            typer.echo("Error: --count must be at least 1.", err=True)
+            raise typer.Exit(code=1)
+
+        bmap = _get_map()
+        recs = bmap.recommend_belief(count=count, style=style, model=model)
+
+        typer.echo(f"\nRecommended belief(s) [style: {style}]\n")
+        if len(recs) == 1:
+            typer.echo(f"  {recs[0].text}")
+            typer.echo(f"  Justification: {recs[0].justification}")
+        else:
+            for i, rec in enumerate(recs, start=1):
+                typer.echo(f"  {i}. {rec.text}")
+                typer.echo(f"     Justification: {rec.justification}")
+                if i < len(recs):
+                    typer.echo()
+
+        typer.echo('\nHint: use `python main.py add "<belief text>"` to add one to your map.')
+    except typer.Exit:
+        raise
     except Exception as exc:
         _handle_error(exc)
 

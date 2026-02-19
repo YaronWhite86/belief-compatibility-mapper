@@ -50,3 +50,10 @@ class TensionResult(BaseModel):
         ..., min_length=1,
         description="One-sentence justification for the score",
     )
+
+
+class BeliefRecommendation(BaseModel):
+    """A suggested new belief returned by the recommend endpoint."""
+
+    text: str = Field(..., min_length=1)
+    justification: str = Field(..., min_length=1)

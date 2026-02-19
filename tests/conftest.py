@@ -57,6 +57,15 @@ def _fake_tension_json(user_msg: str) -> str:
     )
 
 
+def _fake_recommend_json(count: int) -> str:
+    """Return a deterministic recommendations JSON with *count* items."""
+    recs = [
+        {"text": f"Mock recommended belief {i + 1}", "justification": "Mock justification."}
+        for i in range(count)
+    ]
+    return json.dumps({"recommendations": recs})
+
+
 # ------------------------------------------------------------------
 # Mock fixtures
 # ------------------------------------------------------------------
@@ -83,7 +92,15 @@ def mock_anthropic():
     """Patch ``anthropic.Anthropic`` so tension calls return canned JSON."""
 
     def _messages_create(*, model, max_tokens, system, messages, **kw):
+        import re
         user_msg = messages[0]["content"]
+        if "recommendations" in system:
+            m = re.search(r"Number of recommendations requested:\s*(\d+)", user_msg)
+            count = int(m.group(1)) if m else 1
+            return SimpleNamespace(
+                content=[SimpleNamespace(text=_fake_recommend_json(count))],
+                stop_reason="end_turn",
+            )
         return SimpleNamespace(
             content=[SimpleNamespace(text=_fake_tension_json(user_msg))],
             stop_reason="end_turn",

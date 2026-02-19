@@ -9,7 +9,7 @@ import time
 import numpy as np
 
 from cache import RateLimiter, ResultCache
-from models import Belief, TensionCategory, TensionResult
+from models import Belief, BeliefRecommendation, TensionCategory, TensionResult
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +46,29 @@ Score guide:
    0.0       neutral
   -0.5..-0.1 tensioned
   -1.0..-0.6 contradictory\
+"""
+
+
+RECOMMEND_SYSTEM_PROMPT = """\
+You are a thoughtful belief-system analyst. Given a user's existing beliefs, suggest NEW ones.
+
+Fitting styles:
+- harmonious   : fits seamlessly; no new tension with existing beliefs.
+- complementary: covers a thematic angle not yet in the map.
+- challenging  : creates productive intellectual tension without outright contradiction.
+
+Output ONLY valid JSON (no markdown fences):
+{
+  "recommendations": [
+    {"text": "<concise first-person belief, ≤20 words>",
+     "justification": "<one sentence: why it fits the requested style>"}
+  ]
+}
+
+Rules:
+- Return exactly the number of recommendations requested.
+- Never repeat or paraphrase a belief already in the list.
+- Keep each "text" under 20 words.\
 """
 
 
@@ -543,6 +566,94 @@ class BeliefMap:
         result = self.analyze_logical_tension(belief_a, belief_b, model=model)
         self.set_score(id_a, id_b, result.score)
         return result
+
+    def recommend_belief(
+        self,
+        count: int = 1,
+        style: str = "complementary",
+        model: str = TENSION_MODEL,
+    ) -> list[BeliefRecommendation]:
+        """Ask Claude to suggest new beliefs that fit the existing set.
+
+        Parameters
+        ----------
+        count : number of recommendations to request.
+        style : one of "harmonious", "complementary", or "challenging".
+        model : Claude model alias to use.
+
+        Returns a list of :class:`BeliefRecommendation` objects.
+        Raises ``ValueError`` for invalid style or too few beliefs.
+        Raises ``RuntimeError`` if all retries are exhausted.
+        """
+        import json as _json
+
+        VALID_STYLES = {"harmonious", "complementary", "challenging"}
+        if style not in VALID_STYLES:
+            raise ValueError(
+                f"Invalid style {style!r}. Choose from: {', '.join(sorted(VALID_STYLES))}"
+            )
+
+        beliefs = self.list_beliefs()
+        if len(beliefs) < 2:
+            raise ValueError(
+                "At least 2 beliefs are required before requesting a recommendation."
+            )
+
+        belief_lines = "\n".join(
+            f"{i + 1}. {b.expanded or b.text}" for i, b in enumerate(beliefs)
+        )
+
+        scored = self.scored_pairs()
+        context_lines = ""
+        if scored:
+            parts = [
+                f'  "{self.beliefs[a].text}" <-> "{self.beliefs[b].text}"  score={s:+.2f}'
+                for a, b, s in scored[:10]
+            ]
+            context_lines = (
+                "\nKnown compatibility pairs (score -1=contradictory, +1=entailed):\n"
+                + "\n".join(parts)
+            )
+
+        user_message = (
+            f"Existing beliefs:\n{belief_lines}{context_lines}\n\n"
+            f"Fitting style: {style}\nNumber of recommendations requested: {count}"
+        )
+
+        if not hasattr(self, "_anthropic_client"):
+            from anthropic import Anthropic
+            self._anthropic_client = Anthropic()
+
+        last_error: Exception | None = None
+        for attempt in range(MAX_RETRIES):
+            try:
+                if self.rate_limiter:
+                    self.rate_limiter.wait()
+
+                response = self._anthropic_client.messages.create(
+                    model=model,
+                    max_tokens=512,
+                    system=RECOMMEND_SYSTEM_PROMPT,
+                    messages=[{"role": "user", "content": user_message}],
+                )
+                raw = _strip_markdown_fences(response.content[0].text)
+                parsed = _json.loads(raw)
+                recs_raw = parsed.get("recommendations", [])
+                if not recs_raw:
+                    raise ValueError("Response missing 'recommendations' list")
+                return [BeliefRecommendation(**item) for item in recs_raw]
+
+            except Exception as exc:
+                last_error = exc
+                if attempt < MAX_RETRIES - 1:
+                    logger.warning(
+                        "Recommend attempt %d/%d failed: %s", attempt + 1, MAX_RETRIES, exc
+                    )
+                    time.sleep(RETRY_BACKOFF_BASE ** attempt)
+
+        raise RuntimeError(
+            f"All {MAX_RETRIES} attempts failed for recommend: {last_error}"
+        )
 
     def analyze_interesting(
         self,
