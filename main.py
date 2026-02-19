@@ -671,6 +671,60 @@ def _load_common_beliefs_cli() -> list[dict]:
     return _json.loads(COMMON_BELIEFS_PATH.read_text(encoding="utf-8"))["categories"]
 
 
+@app.command()
+def dissonance(
+    threshold: float = typer.Option(
+        -0.5, "--threshold", "-t",
+        help="Score at or below which a pair is flagged as contradictory.",
+    ),
+    alignment: float = typer.Option(
+        0.3, "--alignment", "-a",
+        help="Score >= this with A or B marks a belief as at risk.",
+    ),
+) -> None:
+    """List contradictory belief pairs and their downstream dependents.
+
+    No API calls — computed from the scores matrix only.
+    """
+    try:
+        bmap = _get_map()
+        alerts = bmap.dissonance_report(
+            contradiction_threshold=threshold,
+            alignment_threshold=alignment,
+        )
+        if not alerts:
+            typer.echo("No contradictory pairs detected.")
+            return
+
+        typer.echo(
+            f"Found {len(alerts)} contradictory pair(s) "
+            f"(threshold={threshold}, alignment={alignment}):\n"
+        )
+        for i, alert in enumerate(alerts, 1):
+            ba = bmap.beliefs.get(alert.belief_id_a)
+            bb = bmap.beliefs.get(alert.belief_id_b)
+            if ba is None or bb is None:
+                continue
+            typer.echo(
+                f"  {i}. [{alert.belief_id_a} <-> {alert.belief_id_b}]  "
+                f"score={alert.score:+.3f}  severity={alert.severity:.2f}"
+            )
+            typer.echo(f"     A: {ba.text}")
+            typer.echo(f"     B: {bb.text}")
+            if alert.dependent_ids:
+                dep_strs = ", ".join(
+                    f"[{d}] {bmap.beliefs[d].text[:30]}"
+                    for d in alert.dependent_ids
+                    if d in bmap.beliefs
+                )
+                typer.echo(f"     At risk: {dep_strs}")
+            else:
+                typer.echo("     At risk: none")
+            typer.echo()
+    except Exception as exc:
+        _handle_error(exc)
+
+
 @app.command("quick-add")
 def quick_add(
     category: Optional[str] = typer.Option(

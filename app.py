@@ -325,8 +325,9 @@ with st.sidebar:
 
 beliefs = engine.list_beliefs()
 
-tab_beliefs, tab_heatmap, tab_network, tab_pairs, tab_recs, tab_bedrock, tab_quick = st.tabs(
-    ["Beliefs", "Heatmap", "Network Graph", "Scored Pairs", "Recommendations", "Bedrock", "Quick Add"]
+tab_beliefs, tab_heatmap, tab_network, tab_pairs, tab_recs, tab_bedrock, tab_quick, tab_dissonance = st.tabs(
+    ["Beliefs", "Heatmap", "Network Graph", "Scored Pairs", "Recommendations",
+     "Bedrock", "Quick Add", "Dissonance"]
 )
 
 # -- Tab 1: Beliefs table --
@@ -367,9 +368,26 @@ with tab_network:
             min_value=0.0, max_value=1.0, value=0.3, step=0.05,
             key="net_threshold",
         )
+        highlight_contradictions = st.checkbox(
+            "Highlight contradiction nodes",
+            value=False,
+            key="net_highlight_contradictions",
+            help="Nodes in contradictory pairs (score ≤ -0.5) get a red border and larger size.",
+        )
+
+        node_overrides: dict[int, dict] = {}
+        if highlight_contradictions:
+            _alerts = engine.dissonance_report()
+            _contra_ids = {a.belief_id_a for a in _alerts} | {a.belief_id_b for a in _alerts}
+            node_overrides = {
+                nid: {"size": 32, "line_color": "#FF0000", "line_width": 3}
+                for nid in _contra_ids
+            }
+
         fig = build_network_figure(
             beliefs, engine.beliefs, engine.scores,
             edge_threshold=threshold,
+            node_overrides=node_overrides or None,
         )
         st.plotly_chart(fig, width="stretch")
 
@@ -526,3 +544,79 @@ with tab_quick:
                                     st.rerun()
                                 except ValueError as exc:
                                     st.error(str(exc))
+
+# -- Tab 8: Dissonance --
+with tab_dissonance:
+    scored = engine.scored_pairs()
+    if not scored:
+        st.info("No scored pairs yet. Run analysis or load a demo profile.")
+    else:
+        st.subheader("Cognitive Dissonance Detector")
+        st.caption(
+            "Contradictory pairs are ranked by severity. "
+            "Dependent beliefs are those that positively align with one side "
+            "of a contradiction and may be on shaky ground."
+        )
+
+        col_thresh, col_align = st.columns(2)
+        with col_thresh:
+            contra_thresh = st.slider(
+                "Contradiction threshold",
+                min_value=-1.0, max_value=0.0,
+                value=-0.5, step=0.05,
+                key="dissonance_contra_thresh",
+                help="Pairs at or below this score are flagged.",
+            )
+        with col_align:
+            align_thresh = st.slider(
+                "Alignment threshold",
+                min_value=0.0, max_value=1.0,
+                value=0.3, step=0.05,
+                key="dissonance_align_thresh",
+                help="A belief C is 'at risk' if its score with A or B ≥ this.",
+            )
+
+        alerts = engine.dissonance_report(
+            contradiction_threshold=contra_thresh,
+            alignment_threshold=align_thresh,
+        )
+
+        if not alerts:
+            st.success("No contradictory pairs detected at the current threshold.")
+        else:
+            st.warning(f"{len(alerts)} contradictory pair(s) detected.")
+
+            for alert in alerts:
+                ba = engine.beliefs.get(alert.belief_id_a)
+                bb = engine.beliefs.get(alert.belief_id_b)
+                if ba is None or bb is None:
+                    continue
+
+                if alert.severity >= 0.8:
+                    badge_color, badge_label = "red", "CRITICAL"
+                elif alert.severity >= 0.5:
+                    badge_color, badge_label = "orange", "HIGH"
+                else:
+                    badge_color, badge_label = "yellow", "MODERATE"
+
+                with st.container(border=True):
+                    col_badge, col_score = st.columns([1, 3])
+                    with col_badge:
+                        st.markdown(f":{badge_color}[**{badge_label}**]")
+                    with col_score:
+                        st.markdown(
+                            f"Score: `{alert.score:+.3f}` &nbsp; Severity: `{alert.severity:.2f}`"
+                        )
+                    st.markdown(f"**[{alert.belief_id_a}]** {ba.text}")
+                    st.markdown(f"**[{alert.belief_id_b}]** {bb.text}")
+
+                    if alert.dependent_ids:
+                        with st.expander(
+                            f"{len(alert.dependent_ids)} belief(s) at risk", expanded=False
+                        ):
+                            for dep_id in alert.dependent_ids:
+                                dep = engine.beliefs.get(dep_id)
+                                if dep:
+                                    st.markdown(f"- **[{dep_id}]** {dep.text}")
+                    else:
+                        st.caption("No other beliefs at risk from this contradiction.")

@@ -9,7 +9,10 @@ import time
 import numpy as np
 
 from cache import RateLimiter, ResultCache
-from models import Belief, BedrockPrinciple, BeliefRecommendation, TensionCategory, TensionResult
+from models import (
+    Belief, BedrockPrinciple, BeliefRecommendation,
+    DissonanceAlert, TensionCategory, TensionResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -351,6 +354,54 @@ class BeliefMap:
                 if not np.isnan(val):
                     pairs.append((a, b, float(val)))
         return pairs
+
+    def dissonance_report(
+        self,
+        contradiction_threshold: float = -0.5,
+        alignment_threshold: float = 0.3,
+    ) -> list[DissonanceAlert]:
+        """Identify contradictory belief pairs and their downstream impact.
+
+        For each pair (A, B) where score <= contradiction_threshold, collects
+        all beliefs C (C != A, C != B) whose score with A or B is >=
+        alignment_threshold.  Those dependents are "at risk" because they
+        positively rely on poles that directly contradict each other.
+
+        No LLM calls — derived entirely from the scores matrix.
+
+        Returns alerts sorted by severity descending (most severe first).
+        """
+        alerts: list[DissonanceAlert] = []
+        ids = sorted(self.beliefs)
+
+        for i, id_a in enumerate(ids):
+            for id_b in ids[i + 1:]:
+                val = float(self.scores[id_a, id_b])
+                if np.isnan(val) or val > contradiction_threshold:
+                    continue
+
+                dependent_ids: list[int] = []
+                for id_c in ids:
+                    if id_c in (id_a, id_b):
+                        continue
+                    score_ca = float(self.scores[id_c, id_a])
+                    score_cb = float(self.scores[id_c, id_b])
+                    if (not np.isnan(score_ca) and score_ca >= alignment_threshold) or \
+                       (not np.isnan(score_cb) and score_cb >= alignment_threshold):
+                        dependent_ids.append(id_c)
+
+                severity = min(1.0, abs(val) * (1.0 + 0.1 * len(dependent_ids)))
+
+                alerts.append(DissonanceAlert(
+                    belief_id_a=id_a,
+                    belief_id_b=id_b,
+                    score=val,
+                    dependent_ids=dependent_ids,
+                    severity=severity,
+                ))
+
+        alerts.sort(key=lambda a: a.severity, reverse=True)
+        return alerts
 
     # ------------------------------------------------------------------
     # Embeddings & similarity

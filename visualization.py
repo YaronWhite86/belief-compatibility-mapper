@@ -132,6 +132,7 @@ def build_network_figure(
     scores: np.ndarray,
     edge_threshold: float = 0.5,
     title: str = "Belief Compatibility Network",
+    node_overrides: dict[int, dict] | None = None,
 ):
     """Build a Plotly force-directed network graph figure.
 
@@ -251,15 +252,29 @@ def build_network_figure(
         for n, c in zip(G.nodes, node_color)
     ]
 
+    # Build per-node marker overrides
+    _overrides = node_overrides or {}
+    node_sizes: list[float] = []
+    node_line_colors: list[str] = []
+    node_line_widths: list[float] = []
+    for n in G.nodes:
+        ov = _overrides.get(n, {})
+        node_sizes.append(ov.get("size", 20))
+        node_line_colors.append(ov.get("line_color", "#333333"))
+        node_line_widths.append(ov.get("line_width", 1))
+
     traces.append(go.Scatter(
         x=node_x, y=node_y,
         mode="markers+text",
         marker=dict(
-            size=20,
+            size=node_sizes,
             color=node_color,
             colorscale="RdBu",
             cmin=-1, cmax=1,
-            line=dict(width=1, color="#333"),
+            line=dict(
+                width=node_line_widths,
+                color=node_line_colors,
+            ),
             colorbar=dict(
                 title="Avg Score",
                 tickvals=[-1, 0, 1],

@@ -66,3 +66,22 @@ class BedrockPrinciple(BaseModel):
     belief_ids: list[int] = Field(..., min_length=2)
     coherence: float = Field(..., ge=0.0, le=1.0)
     explanation: str = Field(..., min_length=1)
+
+
+class DissonanceAlert(BaseModel):
+    """A detected contradiction between two beliefs with downstream impact analysis."""
+
+    belief_id_a: int = Field(..., ge=0, lt=15)
+    belief_id_b: int = Field(..., ge=0, lt=15)
+    score: float = Field(..., ge=-1.0, le=1.0)
+    dependent_ids: list[int] = Field(
+        default_factory=list,
+        description=(
+            "IDs of beliefs that positively align with A or B and are "
+            "therefore at risk if A and B cannot both be true."
+        ),
+    )
+    severity: float = Field(
+        ..., ge=0.0, le=1.0,
+        description="abs(score) * (1 + 0.1 * n_dependents), clamped to 1.0",
+    )
