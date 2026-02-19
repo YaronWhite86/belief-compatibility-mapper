@@ -421,14 +421,34 @@ with tab_bedrock:
                         b = engine.beliefs.get(bid)
                         if b:
                             st.markdown(f"- **[{bid}]** {b.text}")
-                if st.button("Add to map", key=f"add_bedrock_{i}"):
-                    if len(engine.beliefs) >= MAX_BELIEFS:
-                        st.warning(f"Maximum of {MAX_BELIEFS} beliefs reached.")
-                    else:
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("Add to map", key=f"add_bedrock_{i}"):
+                        if len(engine.beliefs) >= MAX_BELIEFS:
+                            st.warning(f"Maximum of {MAX_BELIEFS} beliefs reached.")
+                        else:
+                            try:
+                                b = engine.add_belief(p.principle)
+                                _persist()
+                                st.success(f"Added as belief [{b.id}].")
+                                st.rerun()
+                            except ValueError as exc:
+                                st.error(str(exc))
+                with col2:
+                    n = len(p.belief_ids)
+                    if st.button(f"Replace {n} supporting belief(s)", key=f"replace_bedrock_{i}"):
                         try:
+                            removed = []
+                            for bid in p.belief_ids:
+                                if bid in engine.beliefs:
+                                    engine.remove_belief(bid)
+                                    removed.append(bid)
                             b = engine.add_belief(p.principle)
                             _persist()
-                            st.success(f"Added as belief [{b.id}].")
+                            st.session_state.pop("bedrock_principles", None)
+                            st.success(
+                                f"Replaced belief(s) {removed} with bedrock principle [{b.id}]."
+                            )
                             st.rerun()
                         except ValueError as exc:
                             st.error(str(exc))

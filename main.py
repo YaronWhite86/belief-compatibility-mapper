@@ -375,6 +375,10 @@ def recommend(
 @app.command("identify-bedrock")
 def identify_bedrock(
     model: str = typer.Option("claude-sonnet-4-5-latest", "--model", "-m"),
+    replace: Optional[int] = typer.Option(
+        None, "--replace", "-r",
+        help="Principle number to replace supporting beliefs with (1-based index from output).",
+    ),
 ) -> None:
     """Surface implicit foundational principles that unify your beliefs."""
     _check_anthropic_key()
@@ -396,7 +400,27 @@ def identify_bedrock(
                 b = bmap.beliefs.get(bid)
                 if b:
                     typer.echo(f"     [{bid}] {b.text}")
-        typer.echo('\nHint: use `python main.py add "<principle>"` to add it to your map.')
+        if replace is not None:
+            if not (1 <= replace <= len(principles)):
+                typer.echo(
+                    f"Error: --replace must be between 1 and {len(principles)}.", err=True
+                )
+                raise typer.Exit(code=1)
+            chosen = principles[replace - 1]
+            removed = []
+            for bid in chosen.belief_ids:
+                if bid in bmap.beliefs:
+                    bmap.remove_belief(bid)
+                    removed.append(bid)
+            new_belief = bmap.add_belief(chosen.principle)
+            _persist()
+            typer.echo(
+                f"\nReplaced belief(s) {removed} with bedrock principle [{new_belief.id}]: "
+                f"{chosen.principle}"
+            )
+        else:
+            typer.echo('\nHint: use `python main.py add "<principle>"` to add it to your map.')
+            typer.echo('      use --replace <N> to replace supporting beliefs with principle N.')
     except typer.Exit:
         raise
     except Exception as exc:

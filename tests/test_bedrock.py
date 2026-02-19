@@ -181,3 +181,93 @@ def test_cli_output_format(tmp_path, mock_anthropic):
     assert "bedrock principle" in result.output.lower()
     assert "Coherence:" in result.output
     assert "Supporting beliefs:" in result.output
+
+
+# -- Replace operation tests --
+
+
+def test_replace_adds_principle_removes_supporters(belief_map_factory):
+    """Replace removes all supporting beliefs and adds the bedrock principle."""
+    bm = _make_map(belief_map_factory, ["A", "B", "C"])
+    principles = bm.identify_bedrock_principles()
+    p = principles[0]
+    original_count = len(bm.beliefs)
+    removed_texts = [bm.beliefs[bid].text for bid in p.belief_ids if bid in bm.beliefs]
+
+    removed = []
+    for bid in p.belief_ids:
+        if bid in bm.beliefs:
+            bm.remove_belief(bid)
+            removed.append(bid)
+    new_b = bm.add_belief(p.principle)
+
+    # Removed texts are no longer present (IDs may be reused, so check by text)
+    current_texts = {b.text for b in bm.beliefs.values()}
+    for text in removed_texts:
+        assert text not in current_texts
+    # Bedrock principle is present
+    assert new_b.id in bm.beliefs
+    assert bm.beliefs[new_b.id].text == p.principle
+    # Net belief count decreased (removed ≥2 supporting, added 1 principle)
+    assert len(bm.beliefs) < original_count
+
+
+def test_replace_handles_already_removed_supporter(belief_map_factory):
+    """Gracefully skips supporting IDs that were already removed."""
+    bm = _make_map(belief_map_factory, ["X", "Y"])
+    principles = bm.identify_bedrock_principles()
+    p = principles[0]
+
+    first_bid = p.belief_ids[0]
+    bm.remove_belief(first_bid)
+
+    removed = []
+    for bid in p.belief_ids:
+        if bid in bm.beliefs:
+            bm.remove_belief(bid)
+            removed.append(bid)
+    new_b = bm.add_belief(p.principle)
+    assert new_b.text == p.principle
+
+
+def test_replace_duplicate_principle_raises(belief_map_factory):
+    """If principle text already exists as a belief, add_belief raises ValueError."""
+    bm = _make_map(belief_map_factory, ["P", "Q"])
+    principles = bm.identify_bedrock_principles()
+    p = principles[0]
+
+    bm.add_belief(p.principle)
+
+    for bid in p.belief_ids:
+        if bid in bm.beliefs:
+            bm.remove_belief(bid)
+
+    with pytest.raises(ValueError, match="Duplicate"):
+        bm.add_belief(p.principle)
+
+
+def test_cli_replace_flag(tmp_path, mock_anthropic):
+    """CLI --replace removes supporters and adds the bedrock principle."""
+    from typer.testing import CliRunner
+    from main import app
+    import main
+
+    runner = CliRunner()
+    bm = BeliefMap()
+    from cache import RateLimiter, ResultCache
+    bm.cache = ResultCache(tmp_path / "cache.db")
+    bm.rate_limiter = RateLimiter(max_rpm=10_000)
+    bm.add_belief("Markets are efficient.")
+    bm.add_belief("Competition drives innovation.")
+    original_count = len(bm.beliefs)
+
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-test-key"}):
+        with patch.object(main, "_get_map", return_value=bm):
+            with patch.object(main, "_persist"):
+                result = runner.invoke(
+                    app, ["identify-bedrock", "--replace", "1"], catch_exceptions=False
+                )
+
+    assert result.exit_code == 0
+    assert "Replaced" in result.output
+    assert len(bm.beliefs) < original_count
