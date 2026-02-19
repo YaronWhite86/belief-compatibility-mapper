@@ -1,0 +1,96 @@
+{
+  "categories": [
+    {
+      "name": "Ethics",
+      "beliefs": [
+        "Moral duties are absolute and cannot be overridden by consequences.",
+        "The morality of an action is determined solely by its outcomes.",
+        "Character and virtue matter more than rules or outcomes.",
+        "Every person deserves to be treated as an end in themselves.",
+        "What is ethical is whatever produces the greatest happiness for the most people.",
+        "Moral facts are objective and exist independently of what anyone believes.",
+        "Right and wrong are culturally constructed, not universal.",
+        "We have stronger moral duties to those close to us than to strangers."
+      ]
+    },
+    {
+      "name": "Epistemology",
+      "beliefs": [
+        "Knowledge must ultimately be grounded in direct sensory experience.",
+        "Reason alone can yield genuine knowledge without relying on the senses.",
+        "We should proportion our belief to the available evidence.",
+        "All knowledge claims are provisional and subject to revision.",
+        "Intuition is a valid and irreplaceable source of knowledge.",
+        "Scientific consensus is the most reliable guide to empirical truth.",
+        "Expertise confers genuine epistemic authority and should be deferred to.",
+        "Personal experience is a more trustworthy guide than abstract theory."
+      ]
+    },
+    {
+      "name": "Politics",
+      "beliefs": [
+        "Individual liberty should be constrained only to prevent harm to others.",
+        "Equality of outcome is as important as equality of opportunity.",
+        "A strong central government is necessary for a just and stable society.",
+        "Power should be decentralised and local communities should govern themselves.",
+        "Democracy is the only legitimate form of political authority.",
+        "Rights are natural and pre-political — governments cannot grant or take them.",
+        "Private property rights are foundational to a free society.",
+        "The state has a duty to redistribute wealth to reduce inequality.",
+        "National identity and shared culture are essential for social cohesion."
+      ]
+    },
+    {
+      "name": "Economics",
+      "beliefs": [
+        "Free markets are the most efficient way to allocate resources.",
+        "Unregulated markets systematically produce harmful externalities.",
+        "Competition between firms drives innovation and benefits consumers.",
+        "Economic inequality is a natural and acceptable outcome of free exchange.",
+        "A universal basic income would improve human well-being and freedom.",
+        "Growth in GDP is a poor proxy for societal progress and well-being.",
+        "Globalisation raises living standards for everyone in the long run.",
+        "Governments should invest heavily in public goods and infrastructure."
+      ]
+    },
+    {
+      "name": "Metaphysics & Free Will",
+      "beliefs": [
+        "Every event, including human choices, is determined by prior causes.",
+        "Humans possess genuine free will that transcends physical causation.",
+        "Free will and determinism are compatible — we can be free in a determined world.",
+        "Consciousness is entirely reducible to physical brain processes.",
+        "There is something it is like to be conscious that cannot be fully explained physically.",
+        "Personal identity persists through time as a continuous self.",
+        "The self is a useful fiction — there is no unchanging core identity.",
+        "Objective moral facts require a non-physical grounding to exist."
+      ]
+    },
+    {
+      "name": "Science & Technology",
+      "beliefs": [
+        "Scientific progress is generally beneficial and should be accelerated.",
+        "Technology creates risks that outpace society's ability to govern them.",
+        "The precautionary principle should guide decisions under deep uncertainty.",
+        "Artificial intelligence poses an existential risk to humanity.",
+        "Nuclear energy is essential for a safe and low-carbon future.",
+        "Genetic engineering of humans crosses an ethical line that should not be crossed.",
+        "Open and transparent information flow is essential for a free society.",
+        "Some knowledge is dangerous enough that its pursuit should be restricted."
+      ]
+    },
+    {
+      "name": "Society & Culture",
+      "beliefs": [
+        "Traditional institutions embody accumulated wisdom that should be preserved.",
+        "Progress requires questioning and sometimes dismantling inherited norms.",
+        "The family is the foundational unit of a healthy society.",
+        "Individuals should be free to define their own conception of a good life.",
+        "Diversity of viewpoints within institutions improves their decision-making.",
+        "Social trust is more valuable than formal legal enforcement.",
+        "Immigration enriches culture and strengthens economies.",
+        "Nations have the right to control their borders and set immigration policy."
+      ]
+    }
+  ]
+}

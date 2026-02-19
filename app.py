@@ -16,6 +16,14 @@ from visualization import build_heatmap_figure, build_network_figure
 
 DATA_DIR = pathlib.Path("./data")
 PROFILES_DIR = pathlib.Path(__file__).parent / "profiles"
+COMMON_BELIEFS_PATH = pathlib.Path(__file__).parent / "common_beliefs.json"
+
+
+def _load_common_beliefs() -> list[dict]:
+    """Return list of {name, beliefs} dicts, or [] if file missing."""
+    if not COMMON_BELIEFS_PATH.exists():
+        return []
+    return json.loads(COMMON_BELIEFS_PATH.read_text(encoding="utf-8"))["categories"]
 
 # ------------------------------------------------------------------
 # Session state helpers
@@ -112,6 +120,36 @@ with st.sidebar:
                 st.success(f"Added belief [{b.id}]: {b.text}")
             except ValueError as exc:
                 st.error(str(exc))
+
+    st.divider()
+
+    # -- Quick Add preset beliefs --
+    _common = _load_common_beliefs()
+    if _common:
+        with st.expander("Quick Add", expanded=False):
+            cat_names = [c["name"] for c in _common]
+            sel_cat = st.selectbox("Category", cat_names, key="quick_add_cat")
+            cat_beliefs = next(c["beliefs"] for c in _common if c["name"] == sel_cat)
+            existing_texts = {b.text for b in engine.beliefs.values()}
+            for j, belief_text in enumerate(cat_beliefs):
+                already = belief_text in existing_texts
+                col_t, col_b = st.columns([4, 1])
+                with col_t:
+                    st.caption(belief_text)
+                with col_b:
+                    if already:
+                        st.caption("✓")
+                    elif st.button("Add", key=f"qa_sb_{sel_cat}_{j}"):
+                        if len(engine.beliefs) >= MAX_BELIEFS:
+                            st.warning(f"Maximum of {MAX_BELIEFS} beliefs reached.")
+                        else:
+                            try:
+                                b = engine.add_belief(belief_text)
+                                _persist()
+                                st.success(f"Added [{b.id}].")
+                                st.rerun()
+                            except ValueError as exc:
+                                st.error(str(exc))
 
     st.divider()
 
@@ -287,8 +325,8 @@ with st.sidebar:
 
 beliefs = engine.list_beliefs()
 
-tab_beliefs, tab_heatmap, tab_network, tab_pairs, tab_recs, tab_bedrock = st.tabs(
-    ["Beliefs", "Heatmap", "Network Graph", "Scored Pairs", "Recommendations", "Bedrock"]
+tab_beliefs, tab_heatmap, tab_network, tab_pairs, tab_recs, tab_bedrock, tab_quick = st.tabs(
+    ["Beliefs", "Heatmap", "Network Graph", "Scored Pairs", "Recommendations", "Bedrock", "Quick Add"]
 )
 
 # -- Tab 1: Beliefs table --
@@ -452,3 +490,39 @@ with tab_bedrock:
                             st.rerun()
                         except ValueError as exc:
                             st.error(str(exc))
+
+# -- Tab 7: Quick Add --
+with tab_quick:
+    common_categories = _load_common_beliefs()
+    if not common_categories:
+        st.warning("common_beliefs.json not found in project root.")
+    else:
+        existing_texts = {b.text for b in engine.beliefs.values()}
+        st.caption(
+            "Browse preset beliefs by category and add them to your map. "
+            "Already-added entries are greyed out."
+        )
+        for cat in common_categories:
+            with st.expander(f"**{cat['name']}** ({len(cat['beliefs'])} beliefs)", expanded=False):
+                for j, belief_text in enumerate(cat["beliefs"]):
+                    already = belief_text in existing_texts
+                    col_t, col_b = st.columns([5, 1])
+                    with col_t:
+                        if already:
+                            st.markdown(f":gray[{belief_text}]")
+                        else:
+                            st.markdown(belief_text)
+                    with col_b:
+                        if already:
+                            st.caption("✓")
+                        elif st.button("Add", key=f"qa_tab_{cat['name']}_{j}"):
+                            if len(engine.beliefs) >= MAX_BELIEFS:
+                                st.warning(f"Maximum of {MAX_BELIEFS} beliefs reached.")
+                            else:
+                                try:
+                                    b = engine.add_belief(belief_text)
+                                    _persist()
+                                    st.success(f"Added [{b.id}]: {belief_text[:60]}")
+                                    st.rerun()
+                                except ValueError as exc:
+                                    st.error(str(exc))

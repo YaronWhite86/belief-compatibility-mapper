@@ -572,6 +572,7 @@ def analyze_map(
 
 
 PROFILES_DIR = pathlib.Path(__file__).parent / "profiles"
+COMMON_BELIEFS_PATH = pathlib.Path(__file__).parent / "common_beliefs.json"
 
 
 @app.command()
@@ -661,6 +662,78 @@ def demo(
         _maybe_open(hm, True)
         _maybe_open(net, True)
     typer.echo("Done.")
+
+
+def _load_common_beliefs_cli() -> list[dict]:
+    if not COMMON_BELIEFS_PATH.exists():
+        return []
+    import json as _json
+    return _json.loads(COMMON_BELIEFS_PATH.read_text(encoding="utf-8"))["categories"]
+
+
+@app.command("quick-add")
+def quick_add(
+    category: Optional[str] = typer.Option(
+        None, "--category", "-c",
+        help="Filter to a category (case-insensitive substring match).",
+    ),
+    add: Optional[int] = typer.Option(
+        None, "--add", "-a",
+        help="Add belief by its displayed index (1-based).",
+    ),
+) -> None:
+    """Browse and add preset common beliefs to your map.
+
+    Without --add, lists all preset beliefs with index numbers.
+    Use --add N to add belief N directly.
+    Use --category to filter by theme.
+    """
+    categories = _load_common_beliefs_cli()
+    if not categories:
+        typer.echo("Error: common_beliefs.json not found.", err=True)
+        raise typer.Exit(code=1)
+
+    if category:
+        categories = [c for c in categories if category.lower() in c["name"].lower()]
+        if not categories:
+            all_names = [c["name"] for c in _load_common_beliefs_cli()]
+            typer.echo(
+                f"No category matching '{category}'. Available: {', '.join(all_names)}", err=True
+            )
+            raise typer.Exit(code=1)
+
+    # Build flat indexed list
+    indexed: list[tuple[str, str]] = []
+    for cat in categories:
+        for belief_text in cat["beliefs"]:
+            indexed.append((cat["name"], belief_text))
+
+    if add is not None:
+        if not (1 <= add <= len(indexed)):
+            typer.echo(f"Error: --add must be between 1 and {len(indexed)}.", err=True)
+            raise typer.Exit(code=1)
+        _, belief_text = indexed[add - 1]
+        try:
+            bmap = _get_map()
+            b = bmap.add_belief(belief_text)
+            _persist()
+            typer.echo(f"Added belief [{b.id}]: {belief_text}")
+        except (KeyError, ValueError) as exc:
+            _handle_error(exc)
+        return
+
+    # Display listing
+    current_cat = None
+    for idx, (cat_name, belief_text) in enumerate(indexed, 1):
+        if cat_name != current_cat:
+            typer.echo(f"\n{cat_name}\n{'─' * len(cat_name)}")
+            current_cat = cat_name
+        typer.echo(f"  {idx:3d}. {belief_text}")
+
+    typer.echo(f"\n{len(indexed)} preset belief(s) across {len(categories)} category/categories.")
+    typer.echo("Hint: use --add N to add belief N to your map.")
+    if not category:
+        typer.echo("      use --category <name> to filter by theme.")
 
 
 def _score_label(score: float) -> str:
