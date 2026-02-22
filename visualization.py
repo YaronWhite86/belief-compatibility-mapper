@@ -303,6 +303,93 @@ def build_network_figure(
     return fig
 
 
+def build_delta_heatmap_figure(
+    beliefs_a: list,
+    beliefs_b: list,
+    scores_a: np.ndarray,
+    scores_b: np.ndarray,
+    title: str = "Score Delta (Later − Earlier)",
+):
+    """Heatmap showing how scores changed between two snapshots.
+
+    Only beliefs present in BOTH snapshots (matched by text) are shown.
+    Cell value = scores_b[i,j] − scores_a[i,j].
+    Red = moved toward contradiction, blue = toward entailment.
+    NaN where either snapshot has no score for that pair.
+    """
+    import plotly.graph_objects as go
+
+    # Match beliefs by text to handle ID drift between sessions
+    text_to_a = {b.text: b for b in beliefs_a}
+    text_to_b = {b.text: b for b in beliefs_b}
+    shared_texts = [t for t in text_to_a if t in text_to_b]
+
+    if len(shared_texts) < 2:
+        raise ValueError("Need at least 2 beliefs in common between snapshots")
+
+    beliefs_shared_a = [text_to_a[t] for t in shared_texts]
+    beliefs_shared_b = [text_to_b[t] for t in shared_texts]
+
+    ids_a = [b.id for b in beliefs_shared_a]
+    ids_b = [b.id for b in beliefs_shared_b]
+    n = len(shared_texts)
+
+    labels = [f"[{b.id}] {b.text[:50]}" for b in beliefs_shared_a]
+
+    # Build delta sub-matrix
+    delta = np.full((n, n), np.nan)
+    for i in range(n):
+        for j in range(n):
+            val_a = scores_a[ids_a[i], ids_a[j]]
+            val_b = scores_b[ids_b[i], ids_b[j]]
+            if not np.isnan(val_a) and not np.isnan(val_b):
+                delta[i, j] = val_b - val_a
+
+    # Build hover text
+    hover: list[list[str]] = []
+    for i, t_row in enumerate(shared_texts):
+        row_hover: list[str] = []
+        for j, t_col in enumerate(shared_texts):
+            val = delta[i, j]
+            delta_str = f"{val:+.3f}" if not np.isnan(val) else "n/a"
+            row_hover.append(
+                f"<b>{t_row}</b><br>vs.<br><b>{t_col}</b>"
+                f"<br>Delta: {delta_str}"
+            )
+        hover.append(row_hover)
+
+    z_clean = np.where(np.isnan(delta), None, delta)
+
+    fig = go.Figure(
+        data=go.Heatmap(
+            z=z_clean.tolist(),
+            x=labels,
+            y=labels,
+            hovertext=hover,
+            hoverinfo="text",
+            colorscale="RdBu",
+            zmin=-2,
+            zmax=2,
+            colorbar=dict(
+                title="Score Change",
+                tickvals=[-2, -1, 0, 1, 2],
+                ticktext=["-2 (more contradictory)", "-1", "0 (no change)", "+1", "+2 (more aligned)"],
+            ),
+        )
+    )
+
+    fig.update_layout(
+        title=title,
+        xaxis=dict(tickangle=-45, side="bottom"),
+        yaxis=dict(autorange="reversed"),
+        width=max(600, 80 * n),
+        height=max(600, 80 * n),
+        template="plotly_white",
+    )
+
+    return fig
+
+
 def export_network(
     bmap: BeliefMap,
     output: str | pathlib.Path = "network.html",

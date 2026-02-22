@@ -10,8 +10,8 @@ import numpy as np
 
 from cache import RateLimiter, ResultCache
 from models import (
-    Belief, BedrockPrinciple, BeliefRecommendation,
-    DissonanceAlert, TensionCategory, TensionResult,
+    Belief, BedrockPrinciple, BeliefRecommendation, BeliefRole,
+    DissonanceAlert, SimulationResult, TensionCategory, TensionResult,
 )
 
 logger = logging.getLogger(__name__)
@@ -244,6 +244,7 @@ class BeliefMap:
         expanded: str = "",
         embedding: list[float] | None = None,
         tags: list[str] | None = None,
+        role: BeliefRole = BeliefRole.UNTAGGED,
     ) -> Belief:
         """Add a belief and return it.
 
@@ -264,6 +265,7 @@ class BeliefMap:
             expanded=expanded,
             embedding=embedding or [],
             tags=tags or [],
+            role=role,
         )
         self.beliefs[next_id] = belief
         return belief
@@ -283,6 +285,7 @@ class BeliefMap:
         text: str | None = None,
         expanded: str | None = None,
         tags: list[str] | None = None,
+        role: BeliefRole | None = None,
     ) -> Belief:
         """Edit a belief's text, expanded definition, or tags.
 
@@ -316,6 +319,8 @@ class BeliefMap:
             belief.expanded = expanded
         if tags is not None:
             belief.tags = tags
+        if role is not None:
+            belief.role = role
 
         return belief
 
@@ -403,6 +408,56 @@ class BeliefMap:
         alerts.sort(key=lambda a: a.severity, reverse=True)
         return alerts
 
+    def simulate_removal(
+        self,
+        belief_id: int,
+        stability_threshold: float = 0.5,
+    ) -> SimulationResult:
+        """Virtually remove a belief and classify the structural impact on remaining beliefs.
+
+        Does NOT mutate self.beliefs or self.scores — purely analytical.
+        Uses the scored-pairs graph where |score| >= stability_threshold.
+        """
+        import networkx as nx
+
+        if belief_id not in self.beliefs:
+            raise KeyError(f"Belief {belief_id} not found")
+
+        # Build undirected graph from scored pairs above threshold
+        G = nx.Graph()
+        G.add_nodes_from(self.beliefs)
+        for id_a, id_b, score in self.scored_pairs():
+            if abs(score) >= stability_threshold:
+                G.add_edge(id_a, id_b)
+
+        # Components BEFORE removal (as sets)
+        before = {n: comp for comp in nx.connected_components(G) for n in comp}
+
+        # Remove the belief
+        G.remove_node(belief_id)
+        remaining = [bid for bid in self.beliefs if bid != belief_id]
+
+        # Components AFTER removal
+        after = {n: comp for comp in nx.connected_components(G) for n in comp}
+
+        stable_ids, destabilized_ids, orphaned_ids = [], [], []
+        for bid in remaining:
+            after_comp = after[bid]
+            if len(after_comp) == 1:
+                orphaned_ids.append(bid)
+            elif len(after_comp) < len(before[bid]) - 1:
+                destabilized_ids.append(bid)
+            else:
+                stable_ids.append(bid)
+
+        return SimulationResult(
+            removed_id=belief_id,
+            removed_text=self.beliefs[belief_id].text,
+            stable_ids=sorted(stable_ids),
+            destabilized_ids=sorted(destabilized_ids),
+            orphaned_ids=sorted(orphaned_ids),
+        )
+
     # ------------------------------------------------------------------
     # Embeddings & similarity
     # ------------------------------------------------------------------
@@ -440,18 +495,25 @@ class BeliefMap:
 
         # --- phase 2: generate embeddings for the remainder ----------
         if model.startswith("local"):
-            texts = [b.expanded or b.text for b in api_needed]
+            # Local TF-IDF / BOW produce vectors whose dimension depends on the
+            # batch vocabulary size (n_components = min(dims, vocab, n_texts)).
+            # Embedding only the *missing* beliefs in a small batch would produce
+            # shorter vectors than those already stored for other beliefs, causing
+            # a shape mismatch in calculate_initial_similarity.  Fix: always
+            # re-embed ALL beliefs together so every vector has the same length.
+            all_beliefs = self.list_beliefs()
+            texts = [b.expanded or b.text for b in all_beliefs]
             if model == "local-tfidf":
                 vectors = _local_tfidf_embeddings(texts)
             else:
                 vectors = _local_bow_embeddings(texts)
-            for belief, vec in zip(api_needed, vectors):
+            for belief, vec in zip(all_beliefs, vectors):
                 belief.embedding = vec
                 if self.cache:
                     self.cache.put_embedding(
                         belief.expanded or belief.text, model, vec
                     )
-            return cache_hits + len(api_needed)
+            return len(all_beliefs)
 
         # OpenAI API path
         from openai import OpenAI

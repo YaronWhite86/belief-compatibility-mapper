@@ -11,5 +11,6 @@ data/
 .idea/
 .claude/
 offline_output/
+therapy_data/
 *.html
 !OVERVIEW.md

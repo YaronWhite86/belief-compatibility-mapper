@@ -7,6 +7,18 @@ from enum import Enum
 from pydantic import BaseModel, Field
 
 
+class BeliefRole(str, Enum):
+    """Therapeutic role assigned to a belief."""
+
+    SELF_SCHEMA     = "self_schema"
+    ASPIRATION      = "aspiration"
+    SAFETY_STRATEGY = "safety_strategy"
+    LIMITING_BELIEF = "limiting_belief"
+    BRIDGE_BELIEF   = "bridge_belief"
+    CORE_VALUE      = "core_value"
+    UNTAGGED        = "untagged"
+
+
 class Belief(BaseModel):
     """A single belief with its raw text, LLM-expanded definition, and embedding."""
 
@@ -23,6 +35,10 @@ class Belief(BaseModel):
     tags: list[str] = Field(
         default_factory=list,
         description="Thematic tags for cluster-based pairing (e.g. 'ethics', 'economics')",
+    )
+    role: BeliefRole = Field(
+        default=BeliefRole.UNTAGGED,
+        description="Therapeutic role of this belief (backward compatible, defaults to UNTAGGED)",
     )
 
 
@@ -85,3 +101,13 @@ class DissonanceAlert(BaseModel):
         ..., ge=0.0, le=1.0,
         description="abs(score) * (1 + 0.1 * n_dependents), clamped to 1.0",
     )
+
+
+class SimulationResult(BaseModel):
+    """Result of virtually removing a belief from the map."""
+
+    removed_id: int
+    removed_text: str
+    stable_ids: list[int]
+    destabilized_ids: list[int]  # were connected to removed node, now in smaller component
+    orphaned_ids: list[int]      # now completely isolated (no edges)

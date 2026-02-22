@@ -113,6 +113,51 @@ def load_map(directory: str | pathlib.Path) -> BeliefMap:
     return bmap
 
 
+def save_snapshot(
+    bmap: BeliefMap,
+    patient_dir: pathlib.Path,
+    label: str,
+    notes: str = "",
+) -> pathlib.Path:
+    """Save a named, timestamped snapshot of the current belief map."""
+    from datetime import datetime
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    slug = label.strip().replace(" ", "_")[:40]
+    snap_dir = patient_dir / "snapshots" / f"{ts}_{slug}"
+    snap_dir.mkdir(parents=True, exist_ok=True)
+
+    save_map(bmap, snap_dir)
+
+    meta = {
+        "label": label,
+        "notes": notes,
+        "created_at": datetime.now().isoformat(),
+        "belief_count": len(bmap.beliefs),
+    }
+    _atomic_write_text(snap_dir / "snapshot_meta.json", json.dumps(meta, indent=2))
+    return snap_dir
+
+
+def list_snapshots(patient_dir: pathlib.Path) -> list[dict]:
+    """Return snapshot metadata dicts sorted by created_at ascending."""
+    snaps_dir = patient_dir / "snapshots"
+    if not snaps_dir.exists():
+        return []
+    results = []
+    for snap_dir in sorted(snaps_dir.iterdir()):
+        meta_path = snap_dir / "snapshot_meta.json"
+        if meta_path.exists():
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            meta["path"] = snap_dir
+            results.append(meta)
+    return sorted(results, key=lambda m: m["created_at"])
+
+
+def load_snapshot(snapshot_path: pathlib.Path) -> BeliefMap:
+    """Load a snapshot as a BeliefMap (read-only by convention)."""
+    return load_map(snapshot_path)
+
+
 # ------------------------------------------------------------------
 # Display helpers
 # ------------------------------------------------------------------
